@@ -1,11 +1,13 @@
 /**
  * Versendet die Web-Push-Erinnerungen (läuft stündlich per GitHub Actions).
  * Aufruf: npx tsx scripts/send-reminders.ts [--dry-run] [--at=2026-11-02T09:00:00+01:00]
- * Benötigt: FIREBASE_SERVICE_ACCOUNT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (optional VAPID_SUBJECT).
+ * Liest Firestore mit der Web-Config aus src/firebaseConfig.ts (Regeln sind offen).
+ * Benötigt: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (optional VAPID_SUBJECT).
  */
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { initializeApp } from 'firebase/app';
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, type Firestore } from 'firebase/firestore';
 import webpush from 'web-push';
+import { firebaseConfig } from '../src/firebaseConfig';
 import { planReminders } from './reminder-logic';
 import type { Absence, Completion, Household, Snapshot, Task } from '../src/lib/types';
 
@@ -21,22 +23,27 @@ function env(name: string): string {
 }
 
 async function main(): Promise<void> {
-  const serviceAccount = JSON.parse(env('FIREBASE_SERVICE_ACCOUNT')) as Record<string, string>;
+  if (!firebaseConfig.apiKey.trim()) {
+    console.log('Firebase nicht konfiguriert – nichts zu tun');
+    return;
+  }
   const vapidPublic = env('VAPID_PUBLIC_KEY');
   const vapidPrivate = env('VAPID_PRIVATE_KEY');
   const subject = process.env.VAPID_SUBJECT ?? 'https://lucasue.github.io/wg-putzplan/';
   webpush.setVapidDetails(subject, vapidPublic, vapidPrivate);
 
-  initializeApp({ credential: cert(serviceAccount as Parameters<typeof cert>[0]) });
-  const db: Firestore = getFirestore();
+  const app = initializeApp(firebaseConfig);
+  const db: Firestore = getFirestore(app);
+  const all = async <T>(name: string): Promise<T[]> =>
+    (await getDocs(collection(db, name))).docs.map((d) => d.data() as T);
 
-  const hh = (await db.doc('household/main').get()).data() as Household | undefined;
+  const hh = (await getDoc(doc(db, 'household', 'main'))).data() as Household | undefined;
   if (!hh) throw new Error('household/main fehlt – App zuerst öffnen, damit die Daten angelegt werden.');
-  const tasks = (await db.collection('tasks').get()).docs.map((d) => d.data() as Task);
-  const absences = (await db.collection('absences').get()).docs.map((d) => d.data() as Absence);
-  const snapshots = (await db.collection('snapshots').get()).docs.map((d) => d.data() as Snapshot);
-  const completions = (await db.collection('completions').get()).docs.map((d) => d.data() as Completion);
-  const sentDocs = await db.collection('sentReminders').get();
+  const tasks = await all<Task>('tasks');
+  const absences = await all<Absence>('absences');
+  const snapshots = await all<Snapshot>('snapshots');
+  const completions = await all<Completion>('completions');
+  const sentDocs = await getDocs(collection(db, 'sentReminders'));
   const sentKeys = new Set<string>();
   const lastAssignments: Record<string, Record<string, string | null>> = {};
   for (const d of sentDocs.docs) {
@@ -62,7 +69,7 @@ async function main(): Promise<void> {
   console.log(`${dryRun ? '[Dry-Run] ' : ''}Jetzt: ${now.toISOString()} – ${result.messages.length} Nachricht(en) fällig`);
 
   const subsByMember = new Map<string, { id: string; subscription: webpush.PushSubscription }[]>();
-  for (const d of (await db.collection('pushSubscriptions').get()).docs) {
+  for (const d of (await getDocs(collection(db, 'pushSubscriptions'))).docs) {
     const data = d.data() as { memberId: string; subscription: webpush.PushSubscription };
     const list = subsByMember.get(data.memberId) ?? [];
     list.push({ id: d.id, subscription: data.subscription });
@@ -79,22 +86,22 @@ async function main(): Promise<void> {
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
-          await db.collection('pushSubscriptions').doc(s.id).delete();
+          await deleteDoc(doc(db, 'pushSubscriptions', s.id));
           console.log(`  abgelaufene Subscription entfernt: ${s.id}`);
         } else {
           console.error(`  Versand fehlgeschlagen (${s.id}):`, status ?? err);
         }
       }
     }
-    await db.collection('sentReminders').doc(msg.key).set({ sentAt: now.toISOString() });
+    await setDoc(doc(db, 'sentReminders', msg.key), { sentAt: now.toISOString() });
   }
 
   if (!dryRun) {
     for (const snap of result.newSnapshots) {
-      await db.collection('snapshots').doc(snap.periodKey).set(snap);
+      await setDoc(doc(db, 'snapshots', snap.periodKey), snap);
     }
     for (const [periodKey, assignments] of Object.entries(result.assignmentUpdates)) {
-      await db.collection('sentReminders').doc(`assign_${periodKey}`).set({ assignments });
+      await setDoc(doc(db, 'sentReminders', `assign_${periodKey}`), { assignments });
     }
   } else {
     console.log(`[Dry-Run] ${result.newSnapshots.length} Snapshot(s) würden angelegt.`);

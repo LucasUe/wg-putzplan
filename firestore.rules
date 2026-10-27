@@ -2,8 +2,8 @@ rules_version = '2';
 
 // Bewusst einfache Regeln: Die WG-App hat keine Nutzerkonten, der WG-PIN schützt nur die Oberfläche.
 // Es werden keine sensiblen Daten gespeichert. Für mehr Schutz später Firebase Auth einbauen.
-// Die Collection `sentReminders` ist absichtlich nicht freigegeben: sie wird nur vom Reminder-Skript
-// mit dem Admin-SDK gelesen und geschrieben, das diese Regeln umgeht.
+// `sentReminders` (Dedup der Erinnerungen) und `snapshots` werden vom Reminder-Skript
+// über das Web-SDK geschrieben, daher ebenfalls offen.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /household/{doc} {
@@ -22,6 +22,9 @@ service cloud.firestore {
       allow read, write: if true;
     }
     match /pushSubscriptions/{doc} {
+      allow read, write: if true;
+    }
+    match /sentReminders/{doc} {
       allow read, write: if true;
     }
   }

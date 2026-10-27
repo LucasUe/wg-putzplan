@@ -18,7 +18,8 @@ export function Absences() {
     if (!memberId) return setError('Bitte eine Person wählen.');
     if (to < from) return setError('Das Enddatum liegt vor dem Startdatum.');
     setError(null);
-    const absence: Absence = { id: newId(), memberId, from, to, note: note.trim() || undefined };
+    // Firestore lehnt undefined-Felder ab, daher Notiz nur setzen, wenn vorhanden.
+    const absence: Absence = { id: newId(), memberId, from, to, ...(note.trim() ? { note: note.trim() } : {}) };
     await store.saveAbsence(absence);
     setNote('');
   };
