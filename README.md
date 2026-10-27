@@ -19,7 +19,7 @@ npm run build      # Typprüfung und Produktions-Build nach dist/
 npm run icons      # PWA-Icons neu erzeugen
 ```
 
-Erinnerungen lokal testen (braucht die Zugangsdaten aus SETUP.md):
+Erinnerungen lokal testen (braucht eine gesetzte Firebase-Config und die VAPID-Variablen aus SETUP.md):
 
 ```bash
 npx tsx scripts/send-reminders.ts --dry-run

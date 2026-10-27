@@ -17,7 +17,7 @@ Die Schritte sind nummeriert. Wenn du nicht weiterkommst, schick mir den Schritt
    git push -u origin main
    ```
 
-4. Die Dateien erscheinen jetzt auf GitHub. Der Push startet noch keinen Deploy, weil GitHub Pages noch nicht eingerichtet ist. Das holen wir in Schritt 8 nach.
+4. Die Dateien erscheinen jetzt auf GitHub. Der Push startet noch keinen Deploy, weil GitHub Pages noch nicht eingerichtet ist. Das holen wir in Schritt 7 nach.
 
 ---
 
@@ -78,17 +78,7 @@ Die Regeln sind bewusst einfach: Die App hat keine Benutzerkonten, der WG-PIN sc
 
 ---
 
-## Schritt 6: Service-Account-Schlüssel für die Erinnerungen erzeugen
-
-Die Erinnerungen laufen auf GitHub und brauchen Zugriff auf die Datenbank.
-
-1. Firebase-Konsole: **Projekteinstellungen** (Zahnrad) → Tab **Dienstkonten** (Service accounts).
-2. Auf **Neuen privaten Schlüssel generieren** klicken und bestätigen. Es wird eine JSON-Datei heruntergeladen.
-3. **Wichtig:** Diese Datei ist ein Passwort. Nicht ins Repo legen und nicht weitergeben. Den Inhalt brauchst du gleich in Schritt 7.
-
----
-
-## Schritt 7: VAPID-Schlüssel für Push erzeugen und Secrets setzen
+## Schritt 6: VAPID-Schlüssel für Push erzeugen und Secret setzen
 
 Die VAPID-Schlüssel sind das Schlüsselpaar für Web-Push. Erzeuge sie einmal:
 
@@ -112,17 +102,16 @@ Die VAPID-Schlüssel sind das Schlüsselpaar für Web-Push. Erzeuge sie einmal:
    git add -A && git commit -m "VAPID-Public-Key eintragen" && git push
    ```
 
-3. Auf GitHub: Repo **wg-putzplan → Settings → Secrets and variables → Actions → New repository secret**. Lege drei Secrets an:
+3. Auf GitHub im Repo **Settings → Secrets and variables → Actions → New repository secret** zwei Secrets anlegen:
 
    | Name | Wert |
    |---|---|
-   | `FIREBASE_SERVICE_ACCOUNT` | kompletter Inhalt der JSON-Datei aus Schritt 6 |
    | `VAPID_PUBLIC_KEY` | der Public Key (wie in `src/config.ts`) |
    | `VAPID_PRIVATE_KEY` | der Private Key aus dem Terminal |
 
----
+   Für die Erinnerungen braucht es keinen Service-Account mehr. Sie lesen die Datenbank über die Web-Config aus `src/firebaseConfig.ts`.
 
-## Schritt 8: GitHub Pages aktivieren
+## Schritt 7: GitHub Pages aktivieren
 
 1. Auf GitHub im Repo: **Settings → Pages**.
 2. Unter **Build and deployment → Source** den Eintrag **GitHub Actions** wählen. (Nicht „Deploy from a branch“.)
@@ -133,9 +122,11 @@ Die VAPID-Schlüssel sind das Schlüsselpaar für Web-Push. Erzeuge sie einmal:
 
 5. Erinnerungen prüfen: **Actions → Putzplan-Erinnerungen → Run workflow**. Der Lauf sollte ohne Fehler durchlaufen.
 
+6. **Keepalive:** GitHub schaltet Cron-Workflows nach 60 Tagen ohne Aktivität im Repo ab. Der Workflow **Keepalive** schreibt deshalb alle zwei Wochen automatisch einen Zeitstempel ins Repo und aktiviert die Erinnerungen wieder. Manuell auslösen: **Actions → Keepalive → Run workflow**. Das erzeugt keinen Deploy.
+
 ---
 
-## Schritt 9: WG-PIN ändern
+## Schritt 8: WG-PIN ändern
 
 Die Start-PIN ist **1234**. Ändere sie sofort:
 
@@ -146,7 +137,7 @@ Die neue PIN gilt danach für alle Geräte beim nächsten Anmelden.
 
 ---
 
-## Schritt 10: Mitbewohner einladen und App auf den Homescreen legen
+## Schritt 9: Mitbewohner einladen und App auf den Homescreen legen
 
 Schick Marleen und Paul den Link `https://lucasue.github.io/wg-putzplan/` und die PIN (am besten über den Gruppenchat).
 
@@ -169,4 +160,5 @@ Schick Marleen und Paul den Link `https://lucasue.github.io/wg-putzplan/` und di
 - **„Demo-Modus“-Banner sichtbar:** Die Config in `src/firebaseConfig.ts` ist noch leer oder die `apiKey` fehlt. Schritt 4 wiederholen.
 - **Die Seite zeigt „Fehler beim Laden“:** Firestore ist nicht aktiviert (Schritt 3) oder die Regeln fehlen (Schritt 5).
 - **Benachrichtigungen funktionieren nicht:** Prüfen, ob der Public Key in `src/config.ts` steht und die drei Secrets gesetzt sind. Auf dem iPhone muss die App über den Home-Bildschirm geöffnet sein.
-- **Der Erinnerungs-Workflow ist rot:** Im Lauf steht die fehlende Umgebungsvariable oder ein Fehler beim Firebase-Zugriff. Secret `FIREBASE_SERVICE_ACCOUNT` muss der komplette JSON-Inhalt sein.
+- **Der Erinnerungs-Workflow ist rot:** Meist fehlen die Secrets `VAPID_PUBLIC_KEY` oder `VAPID_PRIVATE_KEY` (Schritt 6). Steht im Lauf „Firebase nicht konfiguriert“, ist nur die Config in `src/firebaseConfig.ts` leer; der Lauf bleibt dann absichtlich grün.
+- **Erinnerungen laufen nicht mehr:** Actions → Keepalive → Run workflow auslösen (aktiviert die Cron-Workflows wieder).
