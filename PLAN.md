@@ -64,21 +64,20 @@ pushSubscriptions/{memberId_deviceHash}
 
 ## 4. Fairer Verteilungs-Algorithmus (Kernstück)
 
-Prinzip **„Soll vs. Ist“** pro Person, getrennt für wöchentliche und monatliche Aufgaben:
+Prinzip **„Rotation + Übernahmen“**, getrennt für wöchentliche und monatliche Aufgaben:
 
-1. Für jede Periode (Woche bzw. Monat) wird ermittelt, wer **verfügbar** ist. Eine Person gilt als nicht verfügbar, wenn sich ihre Abwesenheit mit **mehr als 50 %** des Aufgabenzeitraums überschneidet (z. B. 2 von 3 Wochenendtagen, 4 von 7 Tagen in der Müllwoche).
-2. Gesamtaufwand der Periode = Summe der `weight` aller aktiven Aufgaben. Jede **verfügbare** Person bekommt als Soll `Gesamtaufwand / Anzahl verfügbare Personen` gutgeschrieben. Abwesende bekommen kein Soll, müssen also nichts nachholen.
-3. Aufgaben werden der Reihe nach (schwerste zuerst) an die verfügbare Person mit dem **niedrigsten Saldo** (Ist − Soll, inkl. schon in dieser Periode zugeteilter Aufgaben) vergeben.
-4. Gleichstand → wer **diese konkrete Aufgabe am längsten nicht** gemacht hat (so rotieren Saugen/Küche/Müll ganz normal, wenn alle da sind) → dann feste Reihenfolge.
-5. Ist niemand verfügbar, bleibt die Aufgabe unzugeteilt und wird markiert.
+1. **Ideale Rotation:** Ohne Abwesenheiten rotiert jede Aufgabe reihum (Aufgaben deterministisch sortiert nach `createdAt`, dann `id`).
+2. **Verfügbarkeit:** Nicht verfügbar ist, wessen Abwesenheit **mehr als 50 %** des Aufgabenzeitraums abdeckt (z. B. 2 von 3 Wochenendtagen, 4 von 7 Tagen in der Müllwoche).
+3. **Tausch:** Ist die ideale Person einer Aufgabe nicht verfügbar, aber für eine andere Aufgabe derselben Periode schon (und hätte sonst nichts), wird getauscht. Ein Tausch zählt nicht als Übernahme.
+4. **Übernahme:** Sonst übernimmt die verfügbare Person mit den **wenigsten bisherigen Übernahmen** (Tiebreak: weniger Aufwand in dieser Periode, wer die Aufgabe am längsten nicht hatte, feste Reihenfolge). Ihr Übernahme-Zähler steigt um das Gewicht.
+5. **Kein Ausgleich:** Übernahmen werden nicht zurückgezahlt. Sind alle da, gilt exakt die ideale Rotation. Der Zähler entscheidet nur, wer bei der nächsten Abwesenheit zuerst einspringt.
+6. Ist niemand verfügbar, bleibt die Aufgabe unzugeteilt. Abgehakte Aufgaben bleiben bei der Person, die sie abgehakt hat.
 
-**Beispiel (aus der Anforderung):** Lucas ist zwei Wochen weg.
-- Woche 1: Marlen und Paul haben je Soll 1,5. Marlen bekommt 2 Aufgaben (+0,5), Paul 1 (−0,5).
-- Woche 2: Paul hat den niedrigeren Saldo → Paul bekommt 2 Aufgaben. Danach steht es ausgeglichen. ✔
+**Beispiel:** Lucas ist vom 27.11. bis 08.12. weg. KW48 (nur Wochenende weg): Lucas tauscht und macht den Müll, jede Person hat eine Aufgabe. KW49: Lucas' Aufgabe übernimmt jemand. Ab KW50 gilt wieder der normale Rhythmus.
 
-**Stabilität:** Die Zuteilung wird deterministisch aus Startdatum, Aufgaben und Abwesenheiten berechnet (reine Funktion `computeSchedule`, ausführlich unit-getestet). Sobald eine Periode begonnen hat, wird ihre Zuteilung in `snapshots` eingefroren, damit spätere Änderungen die Vergangenheit nicht verschieben. Zukünftige Wochen werden live neu berechnet, sobald jemand eine Abwesenheit einträgt.
+**Stabilität:** Die Zuteilung wird deterministisch aus Startdatum, Aufgaben und Abwesenheiten berechnet (reine Funktion `computeSchedule`, ausführlich unit-getestet). Sobald eine Periode beendet ist, wird ihre Zuteilung (inkl. Übernahme/Tausch) in `snapshots` eingefroren, damit spätere Änderungen die Vergangenheit nicht verschieben. Zukünftige Wochen werden live neu berechnet, sobald jemand eine Abwesenheit einträgt.
 
-**Optional:** „Tauschen“-Button (zwei Personen tauschen eine Aufgabe in einer Periode; zählt im Saldo korrekt).
+**Optional:** „Tauschen“-Button (zwei Personen tauschen eine Aufgabe in einer Periode).
 
 ---
 

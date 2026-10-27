@@ -29,7 +29,7 @@ export function Absences() {
     let n = 0;
     for (const ps of [...schedule.weekly, ...schedule.monthly]) {
       if (ps.period.endDay < a.from || ps.period.startDay > a.to) continue;
-      n += ps.assignments.filter((x) => x.reassigned && x.absentMemberIds.includes(a.memberId)).length;
+      n += ps.assignments.filter((x) => x.takenFor === a.memberId || x.swapBecause === a.memberId).length;
     }
     return n;
   };

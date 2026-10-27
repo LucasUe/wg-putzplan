@@ -53,6 +53,10 @@ export interface SnapshotItem {
   weight: number;
   /** Verfügbare Personen für das Fenster dieser Aufgabe, eingefroren */
   eligible: string[];
+  /** Hat memberId die Aufgabe für eine abwesende Person übernommen? (fehlt bei alten Snapshots) */
+  takeover?: boolean;
+  /** Tauschpartner, falls die Aufgabe wegen Abwesenheit getauscht wurde */
+  swapWith?: string | null;
 }
 
 export interface Snapshot {

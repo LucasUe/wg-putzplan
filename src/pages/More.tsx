@@ -5,8 +5,7 @@ import { pinHashFor, sha256Hex } from '../lib/crypto';
 import { startedPeriods, getBalances } from '../lib/schedule';
 import { enablePush, isIOS, isStandalone, pushSupported, type PushResult } from '../lib/push';
 
-const fmt = (n: number) =>
-  n.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'always' });
+const fmt = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 1 });
 
 const PUSH_TEXT: Record<PushResult, string> = {
   ok: 'Benachrichtigungen sind aktiv.',
@@ -16,7 +15,7 @@ const PUSH_TEXT: Record<PushResult, string> = {
 };
 
 export function More() {
-  const { household, members, memberById, schedule, now, completions, store, currentMember, logout, mode } = useApp();
+  const { household, members, schedule, now, completions, store, currentMember, logout, mode } = useApp();
   const [pushResult, setPushResult] = useState<PushResult | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [newPin, setNewPin] = useState('');
@@ -58,13 +57,27 @@ export function More() {
     <div className="pt-6">
       <h1 className="mb-1 text-2xl font-bold tracking-tight">Mehr</h1>
 
-      <SectionTitle aside="Soll vs. Ist">Fairness – diese Woche</SectionTitle>
-      <BalanceTable rows={weeklyBal} memberById={memberById} />
-
-      <SectionTitle aside="Soll vs. Ist">Fairness – Monate</SectionTitle>
-      <BalanceTable rows={monthlyBal} memberById={memberById} />
+      <SectionTitle aside="wöchentlich · monatlich">Fairness – übernommene Dienste</SectionTitle>
+      <Card className="divide-y divide-[var(--border)]">
+        {members.map((m) => {
+          const w = weeklyBal.find((b) => b.memberId === m.id)?.takeovers ?? 0;
+          const mo = monthlyBal.find((b) => b.memberId === m.id)?.takeovers ?? 0;
+          return (
+            <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="flex items-center gap-2 font-medium">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: m.color }} />
+                {m.name}
+              </span>
+              <span className="flex gap-1.5">
+                <Badge tone={w > 0 ? 'ok' : 'neutral'}>{fmt(w)} wöchentl.</Badge>
+                <Badge tone={mo > 0 ? 'ok' : 'neutral'}>{fmt(mo)} monatl.</Badge>
+              </span>
+            </div>
+          );
+        })}
+      </Card>
       <p className="mt-2 text-xs text-[var(--muted)]">
-        Saldo positiv = mehr gemacht als Soll. Abwesende bekommen kein Soll und holen nichts nach.
+        Wer weniger übernommen hat, ist bei der nächsten Abwesenheit zuerst dran. Wenn alle da sind, gilt der normale Rhythmus.
       </p>
 
       <SectionTitle>Erledigt insgesamt</SectionTitle>
@@ -125,34 +138,5 @@ export function More() {
         </Button>
       </div>
     </div>
-  );
-}
-
-function BalanceTable({
-  rows,
-  memberById,
-}: {
-  rows: { memberId: string; soll: number; ist: number; saldo: number }[];
-  memberById: Map<string, { name: string; color: string }>;
-}) {
-  return (
-    <Card className="divide-y divide-[var(--border)]">
-      {rows.map((r) => {
-        const m = memberById.get(r.memberId);
-        const tone = r.saldo > 0.05 ? 'ok' : r.saldo < -0.05 ? 'warn' : 'neutral';
-        return (
-          <div key={r.memberId} className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="flex items-center gap-2 font-medium">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: m?.color }} />
-              {m?.name}
-            </span>
-            <span className="text-right text-xs text-[var(--muted)]">
-              Soll {r.soll.toLocaleString('de-DE', { maximumFractionDigits: 1 })} · Ist {r.ist.toLocaleString('de-DE', { maximumFractionDigits: 1 })}
-            </span>
-            <Badge tone={tone}>{fmt(r.saldo)}</Badge>
-          </div>
-        );
-      })}
-    </Card>
   );
 }

@@ -3,18 +3,17 @@ import { berlinDay, weekPeriod, windowFor, monthPeriod, type Cadence, type TaskW
 import {
   buildSnapshot,
   computeSchedule,
-  fairShares,
   getBalances,
   isAvailable,
   reassignBadge,
   type Schedule,
   type ScheduleInput,
 } from '../src/lib/schedule';
-import type { Absence, Member, Snapshot, Task } from '../src/lib/types';
+import type { Absence, Member, Task } from '../src/lib/types';
 
 const MEMBERS: Member[] = [
   { id: 'lucas', name: 'Lucas', color: '#3B82F6' },
-  { id: 'marleen', name: 'Marleen', color: '#10B981' },
+  { id: 'marleen', name: 'Marlen', color: '#10B981' },
   { id: 'paul', name: 'Paul', color: '#F97316' },
 ];
 const CREATED = '2026-01-01T00:00:00Z';
@@ -123,90 +122,123 @@ describe('Rotation bei voller Besetzung', () => {
   });
 });
 
-describe('Abwesenheit und Umverteilung', () => {
+
+const nameOf = (id: string) => MEMBERS.find((m) => m.id === id)?.name ?? id;
+const idealOf = (overrides: Partial<ScheduleInput> = {}) => computeSchedule(input({ ...overrides, absences: [], pins: {}, snapshots: [] }));
+
+describe('Abwesenheit: Übernahmen und Tausch', () => {
   const lucasTwoWeeks = input({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-08')] });
 
-  it('Lucas 2 Wochen weg: Woche 1 zwei Personen mit 2 bzw. 1 Aufgaben, danach ausgeglichen', () => {
+  it('Lucas 2 volle Wochen weg: W1 eine von M/P mit 2 Aufgaben, W2 die andere, W3 = ideale Rotation', () => {
     const s = computeSchedule(lucasTwoWeeks);
-    const w1 = holders(s, 'weekly', '2026-W44');
-    const counts1 = countBy(Object.values(w1));
-    expect(counts1.lucas ?? 0).toBe(0);
-    expect(Object.values(counts1).sort()).toEqual([1, 2]);
-
-    const w2 = holders(s, 'weekly', '2026-W45');
-    const counts2 = countBy(Object.values(w2));
-    expect(counts2.lucas ?? 0).toBe(0);
-    // Die andere Person bekommt in Woche 2 nun zwei Aufgaben
-    expect(Object.values(counts2).sort()).toEqual([1, 2]);
-    expect(counts2.marleen).toBe(counts1.paul);
-    expect(counts2.paul).toBe(counts1.marleen);
-
-    const balances = getBalances(s.weekly.slice(0, 2), MEMBERS);
-    expect(balances.find((b) => b.memberId === 'marleen')!.saldo).toBeCloseTo(0, 9);
-    expect(balances.find((b) => b.memberId === 'paul')!.saldo).toBeCloseTo(0, 9);
-    expect(balances.find((b) => b.memberId === 'lucas')!.saldo).toBeCloseTo(0, 9);
-  });
-
-  it('Abwesende bekommen kein Soll und müssen nichts nachholen', () => {
-    const s = computeSchedule(lucasTwoWeeks);
-    const b = getBalances(s.weekly.slice(0, 2), MEMBERS);
-    expect(b.find((x) => x.memberId === 'lucas')!.soll).toBe(0);
+    const c1 = countBy(Object.values(holders(s, 'weekly', '2026-W44')));
+    const c2 = countBy(Object.values(holders(s, 'weekly', '2026-W45')));
+    expect(c1.lucas ?? 0).toBe(0);
+    expect(c2.lucas ?? 0).toBe(0);
+    expect(Object.values(c1).sort()).toEqual([1, 2]);
+    expect(Object.values(c2).sort()).toEqual([1, 2]);
+    expect(c2.marleen).toBe(c1.paul);
+    expect(c2.paul).toBe(c1.marleen);
+    expect(holders(s, 'weekly', '2026-W46')).toEqual(holders(idealOf(), 'weekly', '2026-W46'));
+    const b = getBalances(s.weekly, MEMBERS);
+    expect(b.find((x) => x.memberId === 'lucas')!.takeovers).toBe(0);
+    expect(b.find((x) => x.memberId === 'marleen')!.takeovers).toBe(1);
+    expect(b.find((x) => x.memberId === 'paul')!.takeovers).toBe(1);
   });
 
   it('zwei Personen weg: eine Person macht alles', () => {
     const s = computeSchedule(
-      input({
-        absences: [abs('m', 'marleen', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-10-26', '2026-11-01')],
-      }),
+      input({ absences: [abs('m', 'marleen', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-10-26', '2026-11-01')] }),
     );
-    const w44 = holders(s, 'weekly', '2026-W44');
-    expect(Object.values(w44).every((v) => v === 'lucas')).toBe(true);
+    expect(Object.values(holders(s, 'weekly', '2026-W44')).every((v) => v === 'lucas')).toBe(true);
   });
 
   it('alle weg: Aufgaben bleiben unzugeteilt (null)', () => {
+    const s = computeSchedule(input({ absences: MEMBERS.map((m) => abs(m.id, m.id, '2026-10-26', '2026-11-01')) }));
+    expect(Object.values(holders(s, 'weekly', '2026-W44')).every((v) => v === null)).toBe(true);
+  });
+
+  it('Wochenende: Abwesenheit an 1 von 3 Tagen ändert nichts', () => {
+    const one = computeSchedule(input({ absences: [abs('l', 'lucas', '2026-11-08', '2026-11-08')] }));
+    expect(holders(one, 'weekly', '2026-W45')).toEqual(holders(idealOf(), 'weekly', '2026-W45'));
+  });
+
+  it('wechselnde Abwesenheiten: Lucas weg in KW1 -> Marlen übernimmt; Paul weg in KW5 -> Lucas übernimmt', () => {
     const s = computeSchedule(
       input({
-        absences: MEMBERS.map((m) => abs(m.id, m.id, '2026-10-26', '2026-11-01')),
+        absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-11-23', '2026-11-29')],
+        until: new Date('2026-11-29T12:00:00Z'),
       }),
     );
-    const w44 = holders(s, 'weekly', '2026-W44');
-    expect(Object.values(w44).every((v) => v === null)).toBe(true);
+    const w1 = s.weekly.find((p) => p.period.key === '2026-W44')!;
+    expect(w1.takeovers).toEqual({ lucas: 0, marleen: 1, paul: 0 });
+    const w5 = s.weekly.find((p) => p.period.key === '2026-W48')!;
+    expect(w5.takeovers).toEqual({ lucas: 1, marleen: 0, paul: 0 });
+    const t = w5.assignments.find((a) => a.takenFor === 'paul')!;
+    expect(t.memberId).toBe('lucas');
+    expect(reassignBadge(t, nameOf)).toBe('übernommen für Paul (abwesend)');
   });
 
-  it('Monatsaufgaben: Lucas im November weg -> nur Marleen und Paul, Ist gleichmäßig', () => {
-    const s = computeSchedule(input({ absences: [abs('l', 'lucas', '2026-11-01', '2026-11-30')] }));
-    const nov = holders(s, 'monthly', '2026-11');
-    expect(Object.values(nov)).not.toContain('lucas');
-    const oct = holders(s, 'monthly', '2026-10');
-    expect(Object.values(oct)).toContain('lucas');
+  it('Monatsaufgaben: Lucas den ganzen Dezember weg -> jemand übernimmt, Januar = ideale Rotation', () => {
+    const over = { absences: [abs('l', 'lucas', '2026-12-01', '2026-12-31')], until: new Date('2027-02-15T12:00:00Z') };
+    const s = computeSchedule(input(over));
+    const dec = s.monthly.find((p) => p.period.key === '2026-12')!;
+    expect(dec.assignments.every((a) => a.memberId !== 'lucas' && a.memberId !== null)).toBe(true);
+    expect(dec.takeovers.marleen + dec.takeovers.paul).toBe(1);
+    expect(holders(s, 'monthly', '2027-01')).toEqual(holders(idealOf(over), 'monthly', '2027-01'));
+  });
+});
+
+describe('Nutzer-Szenario: Lucas 27.11.–08.12.2026', () => {
+  const ORDERED: Task[] = [task('kueche', 'weekly', 'weekend'), task('muell', 'weekly', 'fullWeek'), task('saugen', 'weekly', 'weekend')];
+  const scenario = (tasks: Task[]) =>
+    computeSchedule(
+      input({
+        tasks,
+        absences: [abs('l', 'lucas', '2026-11-27', '2026-12-08')],
+        until: new Date('2026-12-27T12:00:00Z'),
+        now: new Date('2026-11-10T12:00:00Z'),
+      }),
+    );
+  const ideal = computeSchedule(input({ tasks: ORDERED, until: new Date('2026-12-27T12:00:00Z'), now: new Date('2026-11-10T12:00:00Z') }));
+
+  it('KW48: jede Person genau eine Aufgabe, Lucas Müll per Tausch', () => {
+    const s = scenario(ORDERED);
+    const w = holders(s, 'weekly', '2026-W48');
+    const c = countBy(Object.values(w));
+    expect(c).toEqual({ lucas: 1, marleen: 1, paul: 1 });
+    expect(w.muell).toBe('lucas');
+    const p = s.weekly.find((x) => x.period.key === '2026-W48')!;
+    expect(Object.values(p.takeovers).every((v) => v === 0)).toBe(true);
+    const sw = p.assignments.find((a) => a.swappedWith !== null && a.memberId !== 'lucas')!;
+    expect(reassignBadge(sw, nameOf)).toBe('getauscht mit Lucas wegen Abwesenheit von Lucas');
   });
 
-  it('Wochenende: Abwesenheit an 1 von 3 Tagen ändert nichts, an 2 Tagen wird umverteilt', () => {
-    const one = computeSchedule(input({ absences: [abs('l', 'lucas', '2026-11-08', '2026-11-08')] }));
-    const two = computeSchedule(input({ absences: [abs('l', 'lucas', '2026-11-07', '2026-11-08')] }));
-    const base = computeSchedule(input());
-    expect(holders(one, 'weekly', '2026-W45')).toEqual(holders(base, 'weekly', '2026-W45'));
-    const twoW45 = holders(two, 'weekly', '2026-W45');
-    // Saugen und Küche (Wochenende) dürfen in dieser Woche nicht an Lucas gehen
-    expect(twoW45.saugen).not.toBe('lucas');
-    expect(twoW45.kueche).not.toBe('lucas');
+  it('KW49: Lucas keine Aufgabe, eine Person zwei', () => {
+    const c = countBy(Object.values(holders(scenario(ORDERED), 'weekly', '2026-W49')));
+    expect(c.lucas ?? 0).toBe(0);
+    expect(Object.values(c).sort()).toEqual([1, 2]);
   });
 
-  it('Umverteilung wird markiert und nennt die abwesende Person', () => {
-    const s = computeSchedule(lucasTwoWeeks);
-    const flagged = s.weekly[0].assignments.filter((x) => x.reassigned);
-    expect(flagged.length).toBeGreaterThan(0);
-    for (const x of flagged) expect(x.absentMemberIds).toContain('lucas');
-    // Lucas ist nie Besitzer einer Aufgabe in seiner Abwesenheitswoche
-    expect(s.weekly[0].assignments.every((x) => x.memberId !== 'lucas')).toBe(true);
+  it('ab KW50: jede Woche identisch mit der idealen Rotation, jede Person genau eine Aufgabe', () => {
+    const s = scenario(ORDERED);
+    for (const key of ['2026-W50', '2026-W51', '2026-W52']) {
+      expect(holders(s, 'weekly', key), key).toEqual(holders(ideal, 'weekly', key));
+      expect(countBy(Object.values(holders(s, 'weekly', key))), key).toEqual({ lucas: 1, marleen: 1, paul: 1 });
+    }
+  });
+
+  it('Reihenfolge-Unabhängigkeit: andere Array-Reihenfolge ergibt denselben Plan', () => {
+    const a = scenario(ORDERED);
+    const b = scenario([ORDERED[2], ORDERED[0], ORDERED[1]]);
+    for (const p of a.weekly) expect(holders(b, 'weekly', p.period.key)).toEqual(holders(a, 'weekly', p.period.key));
   });
 });
 
 describe('Aufgaben-Lebenszyklus', () => {
   it('inaktive Aufgaben zählen nicht', () => {
     const tasks = WEEKLY.map((t) => (t.id === 'muell' ? { ...t, active: false } : t));
-    const s = computeSchedule(input({ tasks }));
-    expect(Object.keys(holders(s, 'weekly', '2026-W44'))).not.toContain('muell');
+    expect(Object.keys(holders(computeSchedule(input({ tasks })), 'weekly', '2026-W44'))).not.toContain('muell');
   });
 
   it('eine neue Aufgabe zählt erst ab ihrer Periode', () => {
@@ -217,192 +249,121 @@ describe('Aufgaben-Lebenszyklus', () => {
   });
 });
 
-describe('Snapshots', () => {
-  it('eingefrorene Perioden bleiben bei späteren Änderungen gleich und gehen in die Salden ein', () => {
-    const late = new Date('2026-11-16T12:00:00Z'); // beide Wochen sind beendet
-    const first = computeSchedule(input({ until: new Date('2026-11-15T12:00:00Z'), now: late }));
-    const snaps: Snapshot[] = first.weekly
-      .slice(0, 2)
-      .map((p) => buildSnapshot(p, '2026-10-26T06:00:00Z'));
-    // Nachträgliche Abwesenheit, die die Vergangenheit verändern würde
-    const changed = computeSchedule(
-      input({
-        absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01')],
-        snapshots: snaps,
-        until: new Date('2026-11-15T12:00:00Z'),
-        now: late,
-      }),
-    );
-    expect(holders(changed, 'weekly', '2026-W44')).toEqual(holders(first, 'weekly', '2026-W44'));
-    expect(holders(changed, 'weekly', '2026-W45')).toEqual(holders(first, 'weekly', '2026-W45'));
-    expect(changed.weekly[0].frozen).toBe(true);
-    expect(changed.weekly[2].frozen).toBe(false);
-  });
-});
+describe('Snapshots und Pins', () => {
+  const THU = new Date('2026-10-29T12:00:00Z');
+  const MON_AFTER = new Date('2026-11-02T08:00:00Z');
 
-describe('Laufende Woche, Pins und Snapshots (Review-Runde 1)', () => {
-  const THU = new Date('2026-10-29T12:00:00Z'); // Donnerstag, KW 44 läuft
-  const MON_AFTER = new Date('2026-11-02T08:00:00Z'); // KW 44 beendet
-
-  it('(a) Snapshot wird nur für beendete Perioden benutzt', () => {
+  it('Snapshot wird nur für beendete Perioden benutzt', () => {
     const first = computeSchedule(input({ until: new Date('2026-11-08T12:00:00Z'), now: THU }));
     const snap = buildSnapshot(first.weekly[0], '2026-10-26T06:00:00Z');
-    // Absichtlich abweichender eingefrorener Stand
-    const tampered = { ...snap, items: { ...snap.items, saugen: { ...snap.items.saugen, memberId: 'paul' } } };
+    const other = MEMBERS.find((m) => m.id !== snap.items.saugen.memberId)!.id;
+    const tampered = { ...snap, items: { ...snap.items, saugen: { ...snap.items.saugen, memberId: other } } };
     const liveNow = computeSchedule(input({ snapshots: [tampered], until: new Date('2026-11-08T12:00:00Z'), now: THU }));
     expect(liveNow.weekly[0].frozen).toBe(false);
-    expect(holders(liveNow, 'weekly', '2026-W44').saugen).not.toBe('paul');
+    expect(holders(liveNow, 'weekly', '2026-W44').saugen).not.toBe(other);
     const afterEnd = computeSchedule(input({ snapshots: [tampered], until: new Date('2026-11-08T12:00:00Z'), now: MON_AFTER }));
     expect(afterEnd.weekly[0].frozen).toBe(true);
-    expect(holders(afterEnd, 'weekly', '2026-W44').saugen).toBe('paul');
+    expect(holders(afterEnd, 'weekly', '2026-W44').saugen).toBe(other);
   });
 
-  it('(b) Abwesenheit Fr–So mitten in der laufenden Woche: Saugen/Küche wandern, Müll bleibt verfügbar', () => {
-    const s = computeSchedule(
-      input({
-        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')],
-        until: new Date('2026-11-01T12:00:00Z'),
-        now: THU,
-      }),
+  it('eingefrorene Perioden bleiben bei späteren Abwesenheiten gleich', () => {
+    const late = new Date('2026-11-16T12:00:00Z');
+    const first = computeSchedule(input({ until: new Date('2026-11-15T12:00:00Z'), now: late }));
+    const snaps = first.weekly.slice(0, 2).map((p) => buildSnapshot(p, '2026-10-26T06:00:00Z'));
+    const changed = computeSchedule(
+      input({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01')], snapshots: snaps, until: new Date('2026-11-15T12:00:00Z'), now: late }),
     );
+    expect(holders(changed, 'weekly', '2026-W44')).toEqual(holders(first, 'weekly', '2026-W44'));
+    expect(changed.weekly[2].frozen).toBe(false);
+  });
+
+  it('Snapshot speichert takeover/swapWith; alter Snapshot ohne Felder wird korrekt gezählt', () => {
+    const over = { absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01')], until: new Date('2026-11-08T12:00:00Z'), now: new Date('2026-11-03T12:00:00Z') };
+    const live = computeSchedule(input(over));
+    const snap = buildSnapshot(live.weekly[0], '2026-11-02T00:00:00Z');
+    expect(Object.values(snap.items).filter((i) => i.takeover)).toHaveLength(1);
+    const legacy = {
+      ...snap,
+      items: Object.fromEntries(Object.entries(snap.items).map(([k, v]) => [k, { memberId: v.memberId, weight: v.weight, eligible: v.eligible }])),
+    };
+    const fromLegacy = computeSchedule(input({ ...over, snapshots: [legacy] }));
+    expect(fromLegacy.weekly[0].frozen).toBe(true);
+    expect(fromLegacy.weekly[0].takeovers).toEqual(live.weekly[0].takeovers);
+    expect(getBalances(fromLegacy.weekly, MEMBERS)).toEqual(getBalances(live.weekly, MEMBERS));
+  });
+
+  it('Abwesenheit Fr–So mitten in der laufenden Woche: Lucas bekommt keine Wochenendaufgabe', () => {
+    const s = computeSchedule(input({ absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')], until: new Date('2026-11-01T12:00:00Z'), now: THU }));
     const w = holders(s, 'weekly', '2026-W44');
     expect(w.saugen).not.toBe('lucas');
     expect(w.kueche).not.toBe('lucas');
-    expect(w.muell).not.toBeNull();
-    const muell = s.weekly[0].assignments.find((a) => a.taskId === 'muell')!;
-    expect(muell.eligible).toContain('lucas');
-    const sau = s.weekly[0].assignments.find((a) => a.taskId === 'saugen')!;
-    expect(sau.reassigned).toBe(true);
-    expect(sau.absentMemberIds).toContain('lucas');
+    expect(countBy(Object.values(w))).toEqual({ lucas: 1, marleen: 1, paul: 1 });
   });
 
-  it('(c) Bereits von Paul abgehakter Müll bleibt bei Paul, auch wenn er danach Fr–So weg ist', () => {
+  it('Pin: abgehakte Aufgabe bleibt bei der abhakenden Person, auch bei späterer Abwesenheit', () => {
     const s = computeSchedule(
-      input({
-        absences: [abs('p', 'paul', '2026-10-30', '2026-11-01')],
-        pins: { '2026-W44': { muell: 'paul' } },
-        until: new Date('2026-11-01T12:00:00Z'),
-        now: THU,
-      }),
+      input({ absences: [abs('p', 'paul', '2026-10-30', '2026-11-01')], pins: { '2026-W44': { saugen: 'paul' } }, until: new Date('2026-11-01T12:00:00Z'), now: THU }),
     );
-    expect(holders(s, 'weekly', '2026-W44').muell).toBe('paul');
+    expect(holders(s, 'weekly', '2026-W44').saugen).toBe('paul');
+    const s2 = computeSchedule(input({ pins: { '2026-W44': { muell: 'marleen' } }, until: new Date('2026-11-01T12:00:00Z'), now: THU }));
+    expect(holders(s2, 'weekly', '2026-W44').muell).toBe('marleen');
   });
 
   it('neue Aufgabe mitten in der laufenden Woche erscheint sofort', () => {
     const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-10-27T10:00:00+01:00' };
-    const s = computeSchedule(
-      input({ tasks: [...WEEKLY, late], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-28T12:00:00Z') }),
-    );
+    const s = computeSchedule(input({ tasks: [...WEEKLY, late], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-28T12:00:00Z') }));
     expect(Object.keys(holders(s, 'weekly', '2026-W44'))).toContain('neu');
   });
 });
 
-describe('Max-min-faires Soll (Review-Runde 2)', () => {
-  const ALL = ['lucas', 'marleen', 'paul'];
-  const close = (shares: Record<string, number>, expected: Record<string, number>) => {
-    for (const k of Object.keys(expected)) expect(shares[k], k).toBeCloseTo(expected[k], 6);
+describe('Umverteilungs-Badge', () => {
+  const base = {
+    taskId: 't', name: 't', weight: 1, memberId: 'marleen', idealMemberId: 'lucas', eligible: ['marleen', 'paul'],
+    frozen: false, takenFor: null as string | null, swappedWith: null as string | null, swapBecause: null as string | null,
   };
-
-  it('(a) Lucas nur für Müll verfügbar, drei Aufgaben mit Gewicht 1 -> Soll 1/1/1', () => {
-    const shares = fairShares(
-      [
-        { weight: 1, eligible: ['marleen', 'paul'] }, // Saugen
-        { weight: 1, eligible: ['marleen', 'paul'] }, // Küche
-        { weight: 1, eligible: ALL }, // Müll (nur Lucas wäre sonst zu wenig)
-      ],
-      ALL,
-    );
-    // Lucas ist nur bei Müll dabei; das Gleichgewicht verlangt 1/1/1
-    close(shares, { lucas: 1, marleen: 1, paul: 1 });
+  it('Übernahme', () => {
+    expect(reassignBadge({ ...base, reassigned: true, takenFor: 'lucas' }, nameOf)).toBe('übernommen für Lucas (abwesend)');
   });
-
-  it('(b) Lucas komplett weg -> Soll 0 / 1,5 / 1,5', () => {
-    const shares = fairShares(
-      [
-        { weight: 1, eligible: ['marleen', 'paul'] },
-        { weight: 1, eligible: ['marleen', 'paul'] },
-        { weight: 1, eligible: ['marleen', 'paul'] },
-      ],
-      ALL,
+  it('Tausch', () => {
+    expect(reassignBadge({ ...base, reassigned: true, swappedWith: 'lucas', swapBecause: 'lucas' }, nameOf)).toBe(
+      'getauscht mit Lucas wegen Abwesenheit von Lucas',
     );
-    close(shares, { lucas: 0, marleen: 1.5, paul: 1.5 });
   });
-
-  it('(c) Gewichte 3,1,1 alle da -> Soll je 5/3', () => {
-    const shares = fairShares(
-      [
-        { weight: 3, eligible: ALL },
-        { weight: 1, eligible: ALL },
-        { weight: 1, eligible: ALL },
-      ],
-      ALL,
-    );
-    close(shares, { lucas: 5 / 3, marleen: 5 / 3, paul: 5 / 3 });
-  });
-
-  it('Niemand verfügbar -> Soll 0 und keine Division durch null', () => {
-    const shares = fairShares([{ weight: 2, eligible: [] }], ALL);
-    close(shares, { lucas: 0, marleen: 0, paul: 0 });
-  });
-
-  it('(d) KW1: Lucas nur für Müll verfügbar, KW2 alle da -> in KW2 bekommt jeder genau eine Aufgabe', () => {
-    const s = computeSchedule(
-      input({
-        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')], // Fr–So KW44
-        until: new Date('2026-11-08T12:00:00Z'),
-        now: new Date('2026-11-09T12:00:00Z'),
-      }),
-    );
-    const kw2 = holders(s, 'weekly', '2026-W45');
-    const counts = countBy(Object.values(kw2));
-    for (const m of MEMBERS) expect(counts[m.id], m.name).toBe(1);
-  });
-
-  it('Soll-Summe bleibt Gesamtgewicht, Lucas (nur bei Müll verfügbar) wie die anderen', () => {
-    const s = computeSchedule(
-      input({
-        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')],
-        until: new Date('2026-11-01T12:00:00Z'),
-        now: new Date('2026-10-29T12:00:00Z'),
-      }),
-    );
-    const p = s.weekly[0];
-    expect(p.soll.lucas).toBeCloseTo(p.soll.marleen, 6); // Lucas ist bei Müll verfügbar: gleiches Soll
-    expect(p.soll.lucas + p.soll.marleen + p.soll.paul).toBeCloseTo(3, 6);
+  it('sonst kein Badge', () => {
+    expect(reassignBadge({ ...base, reassigned: true }, nameOf)).toBeNull();
+    expect(reassignBadge({ ...base, reassigned: false, takenFor: 'lucas' }, nameOf)).toBeNull();
   });
 });
 
-describe('Umverteilungs-Badge (Review-Runde 2)', () => {
-  const nameOf = (id: string) => ({ lucas: 'Lucas', marleen: 'Marleen', paul: 'Paul' })[id] ?? id;
-  const base = {
-    taskId: 't', name: 't', weight: 1, memberId: 'marleen', eligible: ['marleen', 'paul'],
-    frozen: false, absentMemberIds: [] as string[], takenFor: null as string | null,
-  };
-
-  it('ideale Person abwesend -> "übernommen für <Name> (abwesend)"', () => {
-    expect(reassignBadge({ ...base, reassigned: true, takenFor: 'lucas', absentMemberIds: ['lucas'] }, nameOf)).toBe(
-      'übernommen für Lucas (abwesend)',
-    );
-  });
-
-  it('ideale Person verfügbar, Abwesenheit in der Periode -> "getauscht wegen Abwesenheit von <Namen>"', () => {
-    expect(reassignBadge({ ...base, reassigned: true, takenFor: null, absentMemberIds: ['lucas'] }, nameOf)).toBe(
-      'getauscht wegen Abwesenheit von Lucas',
-    );
-  });
-
-  it('keine Abwesenheit, nur Historie -> kein Badge', () => {
-    expect(reassignBadge({ ...base, reassigned: true, takenFor: null, absentMemberIds: [] }, nameOf)).toBeNull();
-    expect(reassignBadge({ ...base, reassigned: false }, nameOf)).toBeNull();
-  });
-
-  it('Schedule: Saugen von Lucas (abwesend Fr–So) bekommt den Grund-Text mit Namen', () => {
-    const s = computeSchedule(
-      input({ absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-29T12:00:00Z') }),
-    );
-    const sau = s.weekly[0].assignments.find((a) => a.taskId === 'saugen')!;
-    expect(sau.reassigned).toBe(true);
-    expect(reassignBadge(sau, nameOf)).toMatch(/^(übernommen für Lucas \(abwesend\)|getauscht wegen Abwesenheit von Lucas)$/);
+describe('Langzeit (52 Wochen, zufällige Abwesenheiten, fester Seed)', () => {
+  it('Zuteilung nur an Verfügbare, null nur ohne Verfügbare, volle Wochen = ideale Rotation', () => {
+    let seed = 20261026;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    const absences: Absence[] = [];
+    for (let w = 0; w < 52; w++) {
+      for (const m of MEMBERS) {
+        if (rnd() < 0.2) {
+          const from = addDaysStr('2026-10-26', w * 7 + Math.floor(rnd() * 7));
+          absences.push(abs(`${m.id}-${w}`, m.id, from, addDaysStr(from, Math.floor(rnd() * 10))));
+        }
+      }
+    }
+    const over = { until: new Date('2027-10-20T12:00:00Z') };
+    const s = computeSchedule(input({ ...over, absences }));
+    const ideal = idealOf(over);
+    for (const p of [...s.weekly, ...s.monthly]) {
+      for (const a of p.assignments) {
+        if (a.memberId === null) expect(a.eligible).toHaveLength(0);
+        else expect(a.eligible).toContain(a.memberId);
+      }
+      if (p.assignments.every((a) => a.eligible.length === MEMBERS.length)) {
+        const idealP = (p.period.cadence === 'weekly' ? ideal.weekly : ideal.monthly).find((x) => x.period.key === p.period.key)!;
+        expect(p.assignments.map((a) => a.memberId)).toEqual(idealP.assignments.map((a) => a.memberId));
+      }
+    }
   });
 });
 
@@ -422,50 +383,22 @@ describe('Zeitumstellung 25.10.2026', () => {
   });
 });
 
-describe('Langzeit-Fairness', () => {
-  it('52 Wochen mit zufälligen Abwesenheiten (fester Seed): Saldo-Differenz <= max. Taskgewicht', () => {
-    // Deterministischer Zufall (LCG) mit festem Seed
-    let seed = 20261026;
-    const rnd = () => {
-      seed = (seed * 1664525 + 1013904223) % 4294967296;
-      return seed / 4294967296;
-    };
-    const tasks: Task[] = [
-      task('saugen', 'weekly', 'weekend', 1),
-      task('kueche', 'weekly', 'weekend', 2),
-      task('muell', 'weekly', 'fullWeek', 3),
-      task('wischen', 'monthly', 'fullMonth', 2),
-      task('kuehlschrank', 'monthly', 'fullMonth', 1),
-      task('pappe', 'monthly', 'fullMonth', 1),
-    ];
-    const absences: Absence[] = [];
-    for (let w = 0; w < 52; w++) {
-      for (const m of MEMBERS) {
-        if (rnd() < 0.2) {
-          const startOffset = Math.floor(rnd() * 7);
-          const days = 1 + Math.floor(rnd() * 10);
-          const from = addDaysStr('2026-10-26', w * 7 + startOffset);
-          absences.push(abs(`${m.id}-${w}-${startOffset}`, m.id, from, addDaysStr(from, days - 1)));
-        }
-      }
+describe('Plan läuft unbegrenzt weiter', () => {
+  it('erzeugt auch Jahre nach dem Start lückenlos Wochen und Monate mit Zuteilung', () => {
+    const now = new Date('2029-06-13T12:00:00Z');
+    const s = computeSchedule(input({ now, until: new Date(now.getTime() + 100 * 86_400_000) }));
+    const upcomingWeeks = s.weekly.filter((p) => p.period.endDay >= berlinDay(now)).slice(0, 5);
+    expect(upcomingWeeks).toHaveLength(5);
+    for (let i = 1; i < upcomingWeeks.length; i++) {
+      expect(upcomingWeeks[i].period.startDay > upcomingWeeks[i - 1].period.endDay).toBe(true);
     }
-    const s = computeSchedule({
-      members: MEMBERS,
-      tasks,
-      absences,
-      startDate: '2026-10-26',
-      snapshots: [],
-      until: new Date('2027-10-20T12:00:00Z'),
-      now: new Date('2026-10-27T12:00:00Z'),
-    });
-    const weekly = getBalances(s.weekly, MEMBERS);
-    const monthly = getBalances(s.monthly, MEMBERS);
-    const spread = (bs: { saldo: number }[]) => Math.max(...bs.map((b) => b.saldo)) - Math.min(...bs.map((b) => b.saldo));
-    expect(spread(weekly)).toBeLessThanOrEqual(3);
-    expect(spread(monthly)).toBeLessThanOrEqual(2);
+    for (const p of upcomingWeeks) {
+      expect(p.assignments).toHaveLength(WEEKLY.length);
+      expect(p.assignments.every((a) => a.memberId !== null)).toBe(true);
+    }
+    expect(s.monthly.filter((p) => p.period.endDay >= berlinDay(now)).length).toBeGreaterThanOrEqual(3);
   });
 });
-
 function countBy(values: (string | null)[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const v of values) if (v) out[v] = (out[v] ?? 0) + 1;

@@ -14,8 +14,14 @@ import {
 import type { Absence, Member, Snapshot, Task } from './types';
 
 /**
- * Verteilungslogik (reine Funktionen, keine Firebase-Abhängigkeit).
- * Siehe PLAN.md Abschnitt 4 sowie Abschnitt 11 (Entscheidungen).
+ * Verteilungslogik "Rotation + Übernahmen" (reine Funktionen, keine Firebase-Abhängigkeit).
+ * Siehe PLAN.md Abschnitt 4.
+ *
+ * 1. Ideale Rotation: Zuteilung ohne Abwesenheiten (rotiert jede Aufgabe reihum).
+ * 2. Ist die ideale Person für das Fenster einer Aufgabe nicht verfügbar, wird zuerst ein
+ *    Tausch innerhalb der Periode versucht, sonst übernimmt die verfügbare Person mit den
+ *    wenigsten bisherigen Übernahmen.
+ * 3. Übernahmen werden nicht "zurückgezahlt": Sind alle da, gilt exakt die ideale Rotation.
  */
 
 const EPS = 1e-9;
@@ -26,14 +32,18 @@ export interface TaskAssignment {
   weight: number;
   /** null = niemand verfügbar, Aufgabe unzugeteilt */
   memberId: string | null;
+  /** Person laut idealer Rotation */
+  idealMemberId: string | null;
   /** Verfügbare Personen für das Fenster dieser Aufgabe */
   eligible: string[];
-  /** Weicht die Zuteilung von der Rotation ohne Abwesenheiten ab? */
+  /** Weicht die Zuteilung von der idealen Rotation ab? */
   reassigned: boolean;
-  /** Personen, die in dieser Periode für mindestens eine Aufgabe nicht verfügbar sind */
-  absentMemberIds: string[];
-  /** Wenn umverteilt und die ideale Person abwesend ist: deren ID */
+  /** Bei Übernahme: die abwesende ideale Person */
   takenFor: string | null;
+  /** Bei Tausch: der Tauschpartner */
+  swappedWith: string | null;
+  /** Bei Tausch: die abwesende Person, wegen der getauscht wurde */
+  swapBecause: string | null;
   /** true, wenn aus einem eingefrorenen Snapshot übernommen */
   frozen: boolean;
 }
@@ -42,10 +52,8 @@ export interface PeriodSchedule {
   period: Period;
   frozen: boolean;
   assignments: TaskAssignment[];
-  /** Soll je Person (nur verfügbare Personen bekommen Soll) */
-  soll: Record<string, number>;
-  /** Ist je Person (Summe der Gewichte zugeteilter Aufgaben) */
-  ist: Record<string, number>;
+  /** Übernommenes Gewicht je Person in dieser Periode */
+  takeovers: Record<string, number>;
 }
 
 export interface Schedule {
@@ -91,331 +99,342 @@ function appliesTo(task: Task, period: Period): boolean {
   return createdPeriod.startDay <= period.startDay;
 }
 
-interface Row {
-  period: Period;
-  frozen: boolean;
-  assignments: TaskAssignment[];
-  soll: Record<string, number>;
-  ist: Record<string, number>;
-}
-
-/**
- * Wasserfüllung für eine Aufgabe: verteilt das Gewicht so auf die Basislasten, dass das
- * Ergebnis (Basis + Anteil) auf einem gemeinsamen Niveau L liegt, wo es Anteile gibt.
- */
-function waterfill(base: number[], weight: number): number[] {
-  const order = base.map((_, i) => i).sort((a, b) => base[a] - base[b]);
-  const n = base.length;
-  let prefix = 0;
-  let level = 0;
-  for (let k = 1; k <= n; k++) {
-    prefix += base[order[k - 1]];
-    const candidate = (weight + prefix) / k;
-    if (k === n || candidate <= base[order[k]]) {
-      level = candidate;
-      break;
-    }
-  }
-  return base.map((b) => Math.max(0, level - b));
-}
-
-/**
- * Max-min-faire Soll-Verteilung: Jede Aufgabe verteilt ihr Gewicht nur auf ihre verfügbaren
- * Personen. Iterativ (Koordinatenabstieg) wird je Aufgabe neu gewässert, bis sich nichts mehr ändert.
- */
-export function fairShares(items: { weight: number; eligible: string[] }[], memberIds: string[]): Record<string, number> {
-  const total: Record<string, number> = {};
-  for (const id of memberIds) total[id] = 0;
-  const shares: number[][] = items.map((it) =>
-    it.eligible.map(() => (it.eligible.length ? it.weight / it.eligible.length : 0)),
+/** Deterministische Reihenfolge: createdAt, dann id (unabhängig von der Lade-Reihenfolge). */
+function sortTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) =>
+    a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  items.forEach((it, i) => it.eligible.forEach((id, j) => (total[id] = (total[id] ?? 0) + shares[i][j])));
-  for (let iter = 0; iter < 200; iter++) {
-    let maxDelta = 0;
-    items.forEach((it, i) => {
-      if (it.eligible.length === 0) return;
-      const base = it.eligible.map((id, j) => (total[id] ?? 0) - shares[i][j]);
-      const next = waterfill(base, it.weight);
-      it.eligible.forEach((id, j) => {
-        const d = next[j] - shares[i][j];
-        maxDelta = Math.max(maxDelta, Math.abs(d));
-        total[id] = (total[id] ?? 0) + d;
-        shares[i][j] = next[j];
-      });
-    });
-    if (maxDelta < 1e-9) break;
-  }
-  return total;
 }
 
 /** Erklärtext für eine umverteilte Aufgabe, oder null (kein Badge). */
 export function reassignBadge(a: TaskAssignment, nameOf: (id: string) => string): string | null {
   if (!a.reassigned) return null;
   if (a.takenFor) return `übernommen für ${nameOf(a.takenFor)} (abwesend)`;
-  if (a.absentMemberIds.length) return `getauscht wegen Abwesenheit von ${a.absentMemberIds.map(nameOf).join(' und ')}`;
+  if (a.swappedWith && a.swapBecause) {
+    return `getauscht mit ${nameOf(a.swappedWith)} wegen Abwesenheit von ${nameOf(a.swapBecause)}`;
+  }
   return null;
 }
 
-/** Rechnet die Zuteilung für eine Periode, die noch nicht eingefroren ist. */
+/** Wer ist bei einem Tausch abwesend? Bei der verwaisten Aufgabe die ideale Person, sonst der neue Inhaber. */
+function swapReason(memberId: string | null, idealMemberId: string | null, eligible: string[]): string | null {
+  if (idealMemberId !== null && !eligible.includes(idealMemberId)) return idealMemberId;
+  return memberId;
+}
+
+/**
+ * Ideale Rotation einer Kadenz (ohne Abwesenheiten, Snapshots und Pins).
+ * Greedy nach Saldo (Ist − gleiches Soll), Tiebreak: am längsten nicht gehabt, dann
+ * am stärksten eingeschränkte Aufgabe, dann Task- und Mitgliederreihenfolge.
+ */
+function idealRotation(periods: Period[], tasks: Task[], members: Member[]): Map<string, Map<string, string | null>> {
+  const out = new Map<string, Map<string, string | null>>();
+  const saldo: Record<string, number> = {};
+  for (const m of members) saldo[m.id] = 0;
+  const lastDone = new Map<string, number>();
+  const memberOrder = new Map(members.map((m, i) => [m.id, i]));
+  const ids = members.map((m) => m.id);
+
+  periods.forEach((period, index) => {
+    const applicable = tasks.filter((t) => appliesTo(t, period));
+    const taskOrder = new Map(applicable.map((t, i) => [t.id, i]));
+    const chosen = new Map<string, string | null>();
+    if (ids.length === 0) {
+      for (const t of applicable) chosen.set(t.id, null);
+      out.set(period.key, chosen);
+      return;
+    }
+    const total = applicable.reduce((s, t) => s + t.weight, 0);
+    const run: Record<string, number> = {};
+    for (const id of ids) run[id] = saldo[id] - total / ids.length;
+    const staleness = (taskId: string, memberId: string): number => {
+      const last = lastDone.get(`${taskId}|${memberId}`);
+      return last === undefined ? Number.POSITIVE_INFINITY : index - last;
+    };
+
+    let remaining = [...applicable];
+    while (remaining.length > 0) {
+      const topWeight = Math.max(...remaining.map((t) => t.weight));
+      const pool = remaining.filter((t) => t.weight === topWeight);
+      const minRun = Math.min(...ids.map((id) => run[id]));
+      const lowest = ids.filter((id) => run[id] - minRun <= EPS);
+
+      let best: { t: Task; p: string; fresh: number } | null = null;
+      for (const t of pool) {
+        const fresh = lowest.filter((id) => staleness(t.id, id) > 2).length;
+        for (const p of lowest) {
+          if (best === null) {
+            best = { t, p, fresh };
+            continue;
+          }
+          const sp = staleness(t.id, p);
+          const sb = staleness(best.t.id, best.p);
+          let better = false;
+          if (sp > sb) better = true;
+          else if (sp === sb) {
+            if (fresh < best.fresh) better = true;
+            else if (fresh === best.fresh) {
+              const to = taskOrder.get(t.id) ?? 0;
+              const bo = taskOrder.get(best.t.id) ?? 0;
+              if (to < bo || (to === bo && (memberOrder.get(p) ?? 0) < (memberOrder.get(best.p) ?? 0))) better = true;
+            }
+          }
+          if (better) best = { t, p, fresh };
+        }
+      }
+      if (best === null) break;
+      const pick = best;
+      chosen.set(pick.t.id, pick.p);
+      run[pick.p] += pick.t.weight;
+      lastDone.set(`${pick.t.id}|${pick.p}`, index);
+      remaining = remaining.filter((t) => t.id !== pick.t.id);
+    }
+    for (const id of ids) saldo[id] = run[id];
+    out.set(period.key, chosen);
+  });
+  return out;
+}
+
+interface CadenceState {
+  /** Kumulierte Übernahmen je Person */
+  counter: Record<string, number>;
+  /** Letzte Periode (Index), in der eine Person eine Aufgabe tatsächlich hatte */
+  lastDone: Map<string, number>;
+}
+
+/** Tatsächliche Zuteilung einer nicht eingefrorenen Periode. */
 function assignLive(
   period: Period,
+  index: number,
   tasks: Task[],
   members: Member[],
   absences: Absence[],
-  saldo: Record<string, number>,
-  lastDone: Map<string, number>,
-  index: number,
+  ideal: Map<string, string | null>,
   pins: Record<string, string>,
-): Row {
+  state: CadenceState,
+): PeriodSchedule {
   const applicable = tasks.filter((t) => appliesTo(t, period));
+  const memberOrder = new Map(members.map((m, i) => [m.id, i]));
+  const memberIds = new Set(members.map((m) => m.id));
   const eligibleOf = new Map<string, string[]>();
   for (const t of applicable) {
     const range = windowFor(period, t.window);
-    eligibleOf.set(
-      t.id,
-      members.filter((m) => isAvailable(m.id, range, absences)).map((m) => m.id),
-    );
+    eligibleOf.set(t.id, members.filter((m) => isAvailable(m.id, range, absences)).map((m) => m.id));
   }
+  const elig = (taskId: string) => eligibleOf.get(taskId) ?? [];
+  const idealOf = (taskId: string) => ideal.get(taskId) ?? null;
 
-  // Soll: Gewicht je Aufgabe gleichmäßig auf die verfügbaren Personen dieser Aufgabe verteilt.
-  const soll: Record<string, number> = {};
-  const ist: Record<string, number> = {};
-  for (const m of members) {
-    soll[m.id] = 0;
-    ist[m.id] = 0;
-  }
-  const sollMap = fairShares(
-    applicable.map((t) => ({ weight: t.weight, eligible: eligibleOf.get(t.id) ?? [] })),
-    members.map((m) => m.id),
-  );
-  for (const m of members) soll[m.id] = sollMap[m.id] ?? 0;
+  // a. Start = ideale Zuteilung
+  const holder = new Map<string, string | null>();
+  for (const t of applicable) holder.set(t.id, idealOf(t.id));
+  const swapPartner = new Map<string, string>();
 
-  const run: Record<string, number> = {};
-  for (const m of members) run[m.id] = (saldo[m.id] ?? 0) - soll[m.id];
-  const staleness = (taskId: string, memberId: string): number => {
-    const last = lastDone.get(`${taskId}|${memberId}`);
-    return last === undefined ? Number.POSITIVE_INFINITY : index - last;
+  // b. Verwaiste Aufgaben: ideale Person für das Fenster nicht verfügbar
+  const isOrphan = (t: Task) => {
+    const a = idealOf(t.id);
+    return a !== null && !elig(t.id).includes(a);
   };
-  const taskOrder = new Map(applicable.map((t, i) => [t.id, i]));
-  const memberOrder = new Map(members.map((m, i) => [m.id, i]));
-  const memberIds = new Set(members.map((m) => m.id));
+  const orphans = applicable.filter(isOrphan);
+  const unresolved: Task[] = [];
 
-  const chosen = new Map<string, string | null>();
-
-  // Festgelegte Aufgaben (z. B. bereits abgehakt) zuerst; sie zählen in Ist und laufendem Saldo.
-  for (const t of applicable) {
-    const pinned = pins[t.id];
-    if (pinned === undefined || !memberIds.has(pinned)) continue;
-    chosen.set(t.id, pinned);
-    run[pinned] += t.weight;
-    ist[pinned] += t.weight;
-    lastDone.set(`${t.id}|${pinned}`, index);
-  }
-
-  // Greedy: schwerste Aufgaben zuerst, an die verfügbare Person mit dem niedrigsten laufenden Saldo.
-  // Bei Gleichstand: wer diese Aufgabe am längsten nicht hatte; danach die am stärksten
-  // eingeschränkte Aufgabe (wenige Personen, die sie lange nicht hatten), damit die Rotation aufgeht.
-  for (const t of applicable) {
-    if (!chosen.has(t.id) && (eligibleOf.get(t.id) ?? []).length === 0) chosen.set(t.id, null);
-  }
-  let remaining = applicable.filter((t) => !chosen.has(t.id));
-
-  while (remaining.length > 0) {
-    const topWeight = Math.max(...remaining.map((t) => t.weight));
-    const pool = remaining.filter((t) => t.weight === topWeight);
-    // Nur Personen mit dem niedrigsten laufenden Saldo kommen in Frage.
-    const allCandidates = new Set<string>();
-    for (const t of pool) for (const id of eligibleOf.get(t.id) ?? []) allCandidates.add(id);
-    const minRun = Math.min(...[...allCandidates].map((id) => run[id]));
-    const lowest = new Set([...allCandidates].filter((id) => run[id] - minRun <= EPS));
-
-    let best: { t: Task; p: string; fresh: number } | null = null;
-    for (const t of pool) {
-      const elig = (eligibleOf.get(t.id) ?? []).filter((id) => lowest.has(id));
-      // Anzahl Personen mit niedrigstem Saldo, die diese Aufgabe nicht in den letzten zwei Perioden hatten
-      const fresh = elig.filter((id) => staleness(t.id, id) > 2).length;
-      for (const p of elig) {
-        if (best === null) {
-          best = { t, p, fresh };
-          continue;
+  // c. Tausch innerhalb der Periode
+  for (const t of orphans) {
+    const a = idealOf(t.id)!;
+    const othersOfA = applicable.filter((x) => x.id !== t.id && holder.get(x.id) === a);
+    let swapped = false;
+    if (othersOfA.length === 0) {
+      for (const u of applicable) {
+        if (u.id === t.id || swapPartner.has(u.id) || isOrphan(u)) continue;
+        const b = holder.get(u.id) ?? null;
+        if (b === null || b === a) continue;
+        if (elig(t.id).includes(b) && elig(u.id).includes(a)) {
+          holder.set(u.id, a);
+          holder.set(t.id, b);
+          swapPartner.set(u.id, b);
+          swapPartner.set(t.id, a);
+          swapped = true;
+          break;
         }
-        const sp = staleness(t.id, p);
-        const sb = staleness(best.t.id, best.p);
-        let better = false;
-        if (sp > sb) better = true;
-        else if (sp === sb) {
-          if (fresh < best.fresh) better = true;
-          else if (fresh === best.fresh) {
-            const to = taskOrder.get(t.id) ?? 0;
-            const bo = taskOrder.get(best.t.id) ?? 0;
-            if (to < bo || (to === bo && (memberOrder.get(p) ?? 0) < (memberOrder.get(best.p) ?? 0))) better = true;
-          }
-        }
-        if (better) best = { t, p, fresh };
       }
     }
-    if (best === null) break;
-    chosen.set(best.t.id, best.p);
-    run[best.p] += best.t.weight;
-    ist[best.p] += best.t.weight;
-    lastDone.set(`${best.t.id}|${best.p}`, index);
-    remaining = remaining.filter((t) => t.id !== best!.t.id);
+    if (!swapped) unresolved.push(t);
   }
 
-  const assignments: TaskAssignment[] = applicable.map((t) => ({
-    taskId: t.id,
-    name: t.name,
-    weight: t.weight,
-    memberId: chosen.get(t.id) ?? null,
-    eligible: eligibleOf.get(t.id) ?? [],
-    reassigned: false,
-    absentMemberIds: [],
-    takenFor: null,
-    frozen: false,
-  }));
-  return { period, frozen: false, assignments, soll, ist };
+  // d./e. Übernahme durch die verfügbare Person mit den wenigsten Übernahmen
+  const counter = { ...state.counter };
+  const load = (id: string) =>
+    applicable.reduce((s, x) => s + (holder.get(x.id) === id ? x.weight : 0), 0);
+  const staleness = (taskId: string, memberId: string) => {
+    const last = state.lastDone.get(`${taskId}|${memberId}`);
+    return last === undefined ? Number.POSITIVE_INFINITY : index - last;
+  };
+  for (const t of unresolved) {
+    holder.set(t.id, null);
+    const cands = elig(t.id);
+    if (cands.length === 0) continue;
+    const best = [...cands].sort((x, y) => {
+      const dc = (counter[x] ?? 0) - (counter[y] ?? 0);
+      if (Math.abs(dc) > EPS) return dc;
+      const dl = load(x) - load(y);
+      if (Math.abs(dl) > EPS) return dl;
+      const sx = staleness(t.id, x);
+      const sy = staleness(t.id, y);
+      if (sx !== sy) return sx > sy ? -1 : 1;
+      return (memberOrder.get(x) ?? 0) - (memberOrder.get(y) ?? 0);
+    })[0];
+    holder.set(t.id, best);
+    counter[best] = (counter[best] ?? 0) + t.weight;
+  }
+
+  // f. Pins (abgehakte Aufgaben) überschreiben die Zuteilung
+  for (const t of applicable) {
+    const pinned = pins[t.id];
+    if (pinned === undefined || !memberIds.has(pinned) || holder.get(t.id) === pinned) continue;
+    const previous = holder.get(t.id) ?? null;
+    const partner = swapPartner.get(t.id);
+    if (partner !== undefined) {
+      // Tausch aufheben: Partneraufgabe ist die, deren Tauschpartner der bisherige Inhaber war
+      const partnerTask = applicable.find((x) => x.id !== t.id && holder.get(x.id) === partner && swapPartner.get(x.id) === previous);
+      if (partnerTask) swapPartner.delete(partnerTask.id);
+      swapPartner.delete(t.id);
+    }
+    holder.set(t.id, pinned);
+  }
+
+  // Ergebnis und endgültige Übernahmen dieser Periode
+  const takeovers: Record<string, number> = {};
+  for (const m of members) takeovers[m.id] = 0;
+  const assignments: TaskAssignment[] = applicable.map((t) => {
+    const memberId = holder.get(t.id) ?? null;
+    const idealMemberId = idealOf(t.id);
+    const eligible = elig(t.id);
+    const partner = swapPartner.get(t.id) ?? null;
+    const isTakeover =
+      memberId !== null && partner === null && idealMemberId !== null && memberId !== idealMemberId && !eligible.includes(idealMemberId);
+    if (isTakeover) takeovers[memberId] = (takeovers[memberId] ?? 0) + t.weight;
+    if (memberId !== null) state.lastDone.set(`${t.id}|${memberId}`, index);
+    return {
+      taskId: t.id,
+      name: t.name,
+      weight: t.weight,
+      memberId,
+      idealMemberId,
+      eligible,
+      reassigned: memberId !== null && memberId !== idealMemberId,
+      takenFor: isTakeover ? idealMemberId : null,
+      swappedWith: partner,
+      swapBecause: partner ? swapReason(memberId, idealMemberId, eligible) : null,
+      frozen: false,
+    };
+  });
+  for (const m of members) state.counter[m.id] = (state.counter[m.id] ?? 0) + takeovers[m.id];
+  return { period, frozen: false, assignments, takeovers };
 }
 
 /** Übernimmt eine eingefrorene Periode aus dem Snapshot. */
 function fromSnapshot(
   period: Period,
+  index: number,
   snap: Snapshot,
   tasks: Task[],
   members: Member[],
-  lastDone: Map<string, number>,
-  index: number,
-): Row {
+  ideal: Map<string, string | null>,
+  state: CadenceState,
+): PeriodSchedule {
   const taskOrder = new Map(tasks.map((t, i) => [t.id, i]));
   const names = new Map(tasks.map((t) => [t.id, t.name]));
   const entries = Object.entries(snap.items).sort(
-    (a, b) => (taskOrder.get(a[0]) ?? 1e9) - (taskOrder.get(b[0]) ?? 1e9),
+    (a, b) => (taskOrder.get(a[0]) ?? 1e9) - (taskOrder.get(b[0]) ?? 1e9) || (a[0] < b[0] ? -1 : 1),
   );
-  const soll: Record<string, number> = {};
-  const ist: Record<string, number> = {};
-  for (const m of members) {
-    soll[m.id] = 0;
-    ist[m.id] = 0;
-  }
-  const sollMap = fairShares(
-    entries.map(([, item]) => ({ weight: item.weight, eligible: item.eligible })),
-    members.map((m) => m.id),
-  );
-  for (const m of members) soll[m.id] = sollMap[m.id] ?? 0;
+  const takeovers: Record<string, number> = {};
+  for (const m of members) takeovers[m.id] = 0;
   const assignments: TaskAssignment[] = entries.map(([taskId, item]) => {
-    if (item.memberId) {
-      ist[item.memberId] = (ist[item.memberId] ?? 0) + item.weight;
-      lastDone.set(`${taskId}|${item.memberId}`, index);
-    }
+    const idealMemberId = ideal.get(taskId) ?? null;
+    const partner = item.swapWith ?? null;
+    // Fallback für alte Snapshots ohne takeover-Feld
+    const isTakeover =
+      item.takeover ??
+      (item.memberId !== null &&
+        idealMemberId !== null &&
+        item.memberId !== idealMemberId &&
+        !item.eligible.includes(idealMemberId));
+    if (isTakeover && item.memberId) takeovers[item.memberId] = (takeovers[item.memberId] ?? 0) + item.weight;
+    if (item.memberId) state.lastDone.set(`${taskId}|${item.memberId}`, index);
     return {
       taskId,
       name: names.get(taskId) ?? taskId,
       weight: item.weight,
       memberId: item.memberId,
+      idealMemberId,
       eligible: item.eligible,
-      reassigned: false,
-      absentMemberIds: [],
-      takenFor: null,
+      reassigned: item.memberId !== null && idealMemberId !== null && item.memberId !== idealMemberId,
+      takenFor: isTakeover ? idealMemberId : null,
+      swappedWith: partner,
+      swapBecause: partner ? swapReason(item.memberId, idealMemberId, item.eligible) : null,
       frozen: true,
     };
   });
-  return { period, frozen: true, assignments, soll, ist };
+  for (const m of members) state.counter[m.id] = (state.counter[m.id] ?? 0) + takeovers[m.id];
+  return { period, frozen: true, assignments, takeovers };
 }
 
 /** Rechnet alle Perioden einer Kadenz in zeitlicher Reihenfolge. */
-function runCadence(cadence: Cadence, input: ScheduleInput): PeriodSchedule[] {
-  const untilDay = berlinDay(input.until);
-  const periods = periodsBetween(cadence, input.startDate, untilDay);
+function runCadence(cadence: Cadence, input: ScheduleInput, tasks: Task[]): PeriodSchedule[] {
+  const periods = periodsBetween(cadence, input.startDate, berlinDay(input.until));
+  const ideal = idealRotation(periods, tasks, input.members);
   const snapByKey = new Map(input.snapshots.filter((s) => s.cadence === cadence).map((s) => [s.periodKey, s]));
   const today = berlinDay(input.now);
-  const saldo: Record<string, number> = {};
-  for (const m of input.members) saldo[m.id] = 0;
-  const lastDone = new Map<string, number>();
-  const out: PeriodSchedule[] = [];
+  const state: CadenceState = { counter: {}, lastDone: new Map() };
+  for (const m of input.members) state.counter[m.id] = 0;
 
-  periods.forEach((period, index) => {
+  return periods.map((period, index) => {
+    const idealP = ideal.get(period.key) ?? new Map<string, string | null>();
     // Nur beendete Perioden werden eingefroren; die laufende Periode wird immer live berechnet.
     const snap = period.endDay < today ? snapByKey.get(period.key) : undefined;
-    const row = snap
-      ? fromSnapshot(period, snap, input.tasks, input.members, lastDone, index)
-      : assignLive(period, input.tasks, input.members, input.absences, saldo, lastDone, index, input.pins?.[period.key] ?? {});
-    for (const m of input.members) {
-      saldo[m.id] = (saldo[m.id] ?? 0) + row.ist[m.id] - row.soll[m.id];
-    }
-    out.push(row);
+    return snap
+      ? fromSnapshot(period, index, snap, tasks, input.members, idealP, state)
+      : assignLive(period, index, tasks, input.members, input.absences, idealP, input.pins?.[period.key] ?? {}, state);
   });
-  return out.map((r) => ({ period: r.period, frozen: r.frozen, assignments: r.assignments, soll: r.soll, ist: r.ist }));
 }
 
 /**
- * Berechnet den Plan. Vergangene/begonnene Perioden mit Snapshot werden übernommen,
- * alle übrigen live aus Startdatum, Aufgaben und Abwesenheiten berechnet.
- * Zusätzlich wird markiert, wo eine Aufgabe gegenüber der Rotation ohne Abwesenheiten umverteilt wurde.
+ * Berechnet den Plan. Beendete Perioden mit Snapshot werden übernommen,
+ * alle übrigen live aus idealer Rotation, Abwesenheiten und Pins berechnet.
  */
 export function computeSchedule(input: ScheduleInput): Schedule {
-  const actual = {
-    weekly: runCadence('weekly', input),
-    monthly: runCadence('monthly', input),
+  const tasks = sortTasks(input.tasks);
+  return {
+    weekly: runCadence('weekly', input, tasks),
+    monthly: runCadence('monthly', input, tasks),
   };
-  // Referenz: gleiche Rotation ohne Abwesenheiten und ohne Snapshots.
-  const ideal = {
-    weekly: runCadence('weekly', { ...input, absences: [], snapshots: [] }),
-    monthly: runCadence('monthly', { ...input, absences: [], snapshots: [] }),
-  };
-  const flag = (cadence: Cadence, ps: PeriodSchedule[]): PeriodSchedule[] => {
-    const memberIds = input.members.map((m) => m.id);
-    const idealByKey = new Map(ideal[cadence].map((p) => [p.period.key, p]));
-    return ps.map((p) => {
-      const ref = idealByKey.get(p.period.key);
-      const refAssign = new Map(ref?.assignments.map((a) => [a.taskId, a]) ?? []);
-      // Personen, die in dieser Periode für mindestens eine Aufgabe nicht verfügbar sind
-      const absentMemberIds = memberIds.filter((id) => p.assignments.some((a) => !a.eligible.includes(id)));
-      const assignments = p.assignments.map((a) => {
-        const idealMember = refAssign.get(a.taskId)?.memberId ?? null;
-        if (idealMember === null || idealMember === a.memberId) return { ...a, absentMemberIds };
-        const takenFor = a.eligible.includes(idealMember) ? null : idealMember;
-        return { ...a, reassigned: true, absentMemberIds, takenFor };
-      });
-      return { ...p, assignments };
-    });
-  };
-  return { weekly: flag('weekly', actual.weekly), monthly: flag('monthly', actual.monthly) };
 }
 
 /** Eingefrorener Snapshot aus einer berechneten Periode. */
 export function buildSnapshot(ps: PeriodSchedule, savedAt: string): Snapshot {
   const items: Snapshot['items'] = {};
   for (const a of ps.assignments) {
-    items[a.taskId] = { memberId: a.memberId, weight: a.weight, eligible: [...a.eligible] };
+    items[a.taskId] = {
+      memberId: a.memberId,
+      weight: a.weight,
+      eligible: [...a.eligible],
+      takeover: a.takenFor !== null,
+      swapWith: a.swappedWith,
+    };
   }
   return { periodKey: ps.period.key, cadence: ps.period.cadence, items, savedAt };
 }
 
 export interface Balance {
   memberId: string;
-  soll: number;
-  ist: number;
-  saldo: number;
+  /** Summe der übernommenen Dienste (Gewicht) */
+  takeovers: number;
 }
 
-/** Summiert Soll/Ist über die übergebenen Perioden. Saldo = Ist - Soll. */
+/** Summiert die Übernahmen je Person über die übergebenen Perioden. */
 export function getBalances(periods: PeriodSchedule[], members: Member[]): Balance[] {
-  const soll: Record<string, number> = {};
-  const ist: Record<string, number> = {};
-  for (const m of members) {
-    soll[m.id] = 0;
-    ist[m.id] = 0;
-  }
-  for (const p of periods) {
-    for (const m of members) {
-      soll[m.id] += p.soll[m.id] ?? 0;
-      ist[m.id] += p.ist[m.id] ?? 0;
-    }
-  }
   return members.map((m) => ({
     memberId: m.id,
-    soll: soll[m.id],
-    ist: ist[m.id],
-    saldo: ist[m.id] - soll[m.id],
+    takeovers: periods.reduce((s, p) => s + (p.takeovers[m.id] ?? 0), 0),
   }));
 }
 
