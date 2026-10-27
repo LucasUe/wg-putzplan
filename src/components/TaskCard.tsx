@@ -45,20 +45,23 @@ export function TaskCard({ period, task, assignment }: Props) {
       <Badge>{formatCountdown(now, end)}</Badge>
     );
 
+  const isOwnTask = owner !== undefined && owner.id === currentMember?.id;
+  const buttonVariant = done ? 'secondary' : isOwnTask || !owner ? 'primary' : 'outline';
+
   return (
     <article
-      className={`rounded-2xl border border-[var(--border)] border-l-4 bg-[var(--surface)] p-4 shadow-sm transition ${
+      className={`rounded-2xl border border-[var(--border)] border-l-4 bg-[var(--surface)] p-3 shadow-sm transition ${
         status === 'überfällig' ? 'ring-2 ring-red-400/70' : ''
       } ${status === 'erledigt' ? 'opacity-60' : ''}`}
       style={{ borderLeftColor: owner?.color ?? '#9CA3AF' }}
     >
       <div className="flex items-start gap-3">
-        <div className="text-3xl leading-none" aria-hidden="true">
+        <div className="text-2xl leading-none" aria-hidden="true">
           {task.icon}
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1">
           <h3 className={`font-semibold leading-tight ${status === 'erledigt' ? 'line-through' : ''}`}>{task.name}</h3>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-1.5 text-sm">
             {owner ? (
               <>
                 <MemberDot color={owner.color} />
@@ -67,24 +70,26 @@ export function TaskCard({ period, task, assignment }: Props) {
             ) : (
               <span className="text-[var(--muted)]">niemand verfügbar</span>
             )}
-          </div>
-          <div className="text-xs text-[var(--muted)]">{formatRange(range)}</div>
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            {statusBadge}
-            {assignment?.reassigned && (
-              <Badge tone="warn">
-                übernommen wegen Abwesenheit{absentNames.length ? ` von ${absentNames.join(' und ')}` : ''}
-              </Badge>
-            )}
+            <span className="text-xs text-[var(--muted)]">· {formatRange(range)}</span>
           </div>
         </div>
       </div>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {statusBadge}
+          {assignment?.reassigned && (
+            <Badge tone="warn">
+              übernommen wegen Abwesenheit{absentNames.length ? ` von ${absentNames.join(' und ')}` : ''}
+            </Badge>
+          )}
+        </div>
         <Button
-          variant={done ? 'secondary' : 'primary'}
+          size="sm"
+          variant={buttonVariant}
           disabled={busy || !currentMember}
           onClick={toggle}
           aria-pressed={done}
+          className="shrink-0"
         >
           {done ? 'Rückgängig' : 'Abhaken ✓'}
         </Button>

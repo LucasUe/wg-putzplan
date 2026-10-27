@@ -31,19 +31,28 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
 
 export function Button({
   variant = 'primary',
+  size = 'md',
   className = '',
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
+  size?: 'sm' | 'md';
+}) {
   const variants = {
     primary: 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300',
     secondary: 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-neutral-100 dark:hover:bg-neutral-800',
     danger: 'bg-red-600 text-white hover:bg-red-700',
     ghost: 'text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40',
+    outline: 'border border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40',
+  } as const;
+  const sizes = {
+    md: 'px-4 py-2.5 text-sm',
+    sm: 'px-3 py-1.5 text-sm',
   } as const;
   return (
     <button
       {...rest}
-      className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center rounded-xl font-semibold transition disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`}
     />
   );
 }
