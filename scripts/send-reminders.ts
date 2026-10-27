@@ -2,12 +2,13 @@
  * Versendet die Web-Push-Erinnerungen (läuft stündlich per GitHub Actions).
  * Aufruf: npx tsx scripts/send-reminders.ts [--dry-run] [--at=2026-11-02T09:00:00+01:00]
  * Liest Firestore mit der Web-Config aus src/firebaseConfig.ts (Regeln sind offen).
- * Benötigt: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (optional VAPID_SUBJECT).
+ * Benötigt: VAPID_PRIVATE_KEY (optional VAPID_PUBLIC_KEY, sonst aus src/config.ts, und VAPID_SUBJECT).
  */
 import { initializeApp } from 'firebase/app';
 import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, type Firestore } from 'firebase/firestore';
 import webpush from 'web-push';
 import { firebaseConfig } from '../src/firebaseConfig';
+import { VAPID_PUBLIC_KEY } from '../src/config';
 import { planReminders } from './reminder-logic';
 import type { Absence, Completion, Household, Snapshot, Task } from '../src/lib/types';
 
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
     console.log('Firebase nicht konfiguriert – nichts zu tun');
     return;
   }
-  const vapidPublic = env('VAPID_PUBLIC_KEY');
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY;
   const vapidPrivate = env('VAPID_PRIVATE_KEY');
   const subject = process.env.VAPID_SUBJECT ?? 'https://lucasue.github.io/wg-putzplan/';
   webpush.setVapidDetails(subject, vapidPublic, vapidPrivate);

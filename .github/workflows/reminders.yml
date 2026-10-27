@@ -21,6 +21,5 @@ jobs:
       - run: npm ci
       - name: Erinnerungen senden
         env:
-          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
         run: npx tsx scripts/send-reminders.ts

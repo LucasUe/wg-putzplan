@@ -1,5 +1,5 @@
 /**
  * Öffentlicher VAPID-Schlüssel für Web-Push.
- * Platzhalter: durch den Wert aus `npx web-push generate-vapid-keys` ersetzen (siehe SETUP.md).
+ * Der zugehörige private Schlüssel liegt nur im Repo-Secret VAPID_PRIVATE_KEY.
  */
-export const VAPID_PUBLIC_KEY = 'REPLACE_WITH_VAPID_PUBLIC_KEY';
+export const VAPID_PUBLIC_KEY = 'BMmcBmVmVop4eoDoDiuxc9ydIyW3N2vcZTJ33OPOtGkC-IXImPG95xG_xAuQZvl7znfNNkFNb5XL3ILAIxQTr9k';

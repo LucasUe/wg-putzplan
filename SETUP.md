@@ -78,38 +78,14 @@ Die Regeln sind bewusst einfach: Die App hat keine Benutzerkonten, der WG-PIN sc
 
 ---
 
-## Schritt 6: VAPID-Schlüssel für Push erzeugen und Secret setzen
+## Schritt 6: Push-Secret setzen
 
-Die VAPID-Schlüssel sind das Schlüsselpaar für Web-Push. Erzeuge sie einmal:
+Das Schlüsselpaar für Web-Push ist schon erzeugt. Der öffentliche Schlüssel steht in `src/config.ts`. Nur der private Schlüssel muss als Secret ins Repo (geht komplett im Browser):
 
-1. Im Projektordner im Terminal ausführen:
+1. Auf GitHub im Repo **Settings → Secrets and variables → Actions → New repository secret**.
+2. Name: `VAPID_PRIVATE_KEY`, Wert: der private Schlüssel. Speichern.
 
-   ```bash
-   npx web-push generate-vapid-keys
-   ```
-
-   Es erscheinen zwei Zeilen: **Public Key** und **Private Key**. Beide notieren.
-
-2. Den **Public Key** in **`src/config.ts`** eintragen (Platzhalter ersetzen):
-
-   ```ts
-   export const VAPID_PUBLIC_KEY = 'BD...';   // Public Key aus dem Terminal
-   ```
-
-   Speichern und committen:
-
-   ```bash
-   git add -A && git commit -m "VAPID-Public-Key eintragen" && git push
-   ```
-
-3. Auf GitHub im Repo **Settings → Secrets and variables → Actions → New repository secret** zwei Secrets anlegen:
-
-   | Name | Wert |
-   |---|---|
-   | `VAPID_PUBLIC_KEY` | der Public Key (wie in `src/config.ts`) |
-   | `VAPID_PRIVATE_KEY` | der Private Key aus dem Terminal |
-
-   Für die Erinnerungen braucht es keinen Service-Account mehr. Sie lesen die Datenbank über die Web-Config aus `src/firebaseConfig.ts`.
+Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den Public Key in `src/config.ts` und den Private Key als Secret eintragen. Danach müssen alle einmal „Benachrichtigungen aktivieren“ neu drücken.
 
 ## Schritt 7: GitHub Pages aktivieren
 
@@ -160,5 +136,5 @@ Schick Marleen und Paul den Link `https://lucasue.github.io/wg-putzplan/` und di
 - **„Demo-Modus“-Banner sichtbar:** Die Config in `src/firebaseConfig.ts` ist noch leer oder die `apiKey` fehlt. Schritt 4 wiederholen.
 - **Die Seite zeigt „Fehler beim Laden“:** Firestore ist nicht aktiviert (Schritt 3) oder die Regeln fehlen (Schritt 5).
 - **Benachrichtigungen funktionieren nicht:** Prüfen, ob der Public Key in `src/config.ts` steht und die drei Secrets gesetzt sind. Auf dem iPhone muss die App über den Home-Bildschirm geöffnet sein.
-- **Der Erinnerungs-Workflow ist rot:** Meist fehlen die Secrets `VAPID_PUBLIC_KEY` oder `VAPID_PRIVATE_KEY` (Schritt 6). Steht im Lauf „Firebase nicht konfiguriert“, ist nur die Config in `src/firebaseConfig.ts` leer; der Lauf bleibt dann absichtlich grün.
+- **Der Erinnerungs-Workflow ist rot:** Meist fehlt das Secret `VAPID_PRIVATE_KEY` (Schritt 6). Steht im Lauf „Firebase nicht konfiguriert“, ist nur die Config in `src/firebaseConfig.ts` leer; der Lauf bleibt dann absichtlich grün.
 - **Erinnerungen laufen nicht mehr:** Actions → Keepalive → Run workflow auslösen (aktiviert die Cron-Workflows wieder).
