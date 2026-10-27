@@ -10,7 +10,7 @@ const base = (now: string, overrides: Partial<ReminderInput> = {}): ReminderInpu
   absences: [],
   startDate: hh.startDate,
   snapshots: [],
-  completionIds: new Set(),
+  completions: [],
   sentKeys: new Set(),
   lastAssignments: {},
   ...overrides,
@@ -54,9 +54,10 @@ describe('Erinnerungen (Europe/Berlin)', () => {
     const sun = all.messages.filter((m) => m.key.startsWith('wk-sun-'));
     expect(sun).toHaveLength(3);
     // Alles erledigt -> keine Erinnerung
-    const ids = new Set<string>();
-    for (const t of seedTasks().filter((t) => t.cadence === 'weekly')) ids.add(`2026-W45_${t.id}`);
-    const done = planReminders(base('2026-11-08T17:00:00Z', { completionIds: ids }));
+    const completions = seedTasks()
+      .filter((t) => t.cadence === 'weekly')
+      .map((t) => ({ id: `2026-W45_${t.id}`, periodKey: '2026-W45', taskId: t.id, doneBy: 'lucas', doneAt: '2026-11-08T16:00:00Z' }));
+    const done = planReminders(base('2026-11-08T17:00:00Z', { completions }));
     expect(done.messages.filter((m) => m.key.startsWith('wk-sun-'))).toHaveLength(0);
   });
 
@@ -94,13 +95,12 @@ describe('Erinnerungen (Europe/Berlin)', () => {
     expect(r.messages.filter((m) => m.key.startsWith('wk-sun-2026-W43'))).toHaveLength(3);
   });
 
-  it('neue Snapshots nur für begonnene Perioden ohne Snapshot', () => {
+  it('Snapshots nur für beendete Perioden (laufende Periode bleibt live)', () => {
     const r = planReminders(base('2026-11-03T11:00:00Z'));
     const keys = r.newSnapshots.map((s) => `${s.cadence}:${s.periodKey}`);
     expect(keys).toContain('weekly:2026-W44');
-    expect(keys).toContain('weekly:2026-W45');
-    expect(keys).not.toContain('weekly:2026-W46');
+    expect(keys).not.toContain('weekly:2026-W45');
     expect(keys).toContain('monthly:2026-10');
-    expect(keys).toContain('monthly:2026-11');
+    expect(keys).not.toContain('monthly:2026-11');
   });
 });

@@ -108,6 +108,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const safeSnapshots = useMemo(() => snapshots ?? [], [snapshots]);
   const safeCompletions = useMemo(() => completions ?? [], [completions]);
 
+  // Abgehakte Aufgaben bleiben bei der Person, die sie abgehakt hat.
+  const pins = useMemo(() => {
+    const out: Record<string, Record<string, string>> = {};
+    for (const c of safeCompletions) (out[c.periodKey] ??= {})[c.taskId] = c.doneBy;
+    return out;
+  }, [safeCompletions]);
+
   const schedule = useMemo<Schedule>(() => {
     if (!household) return { weekly: [], monthly: [] };
     return computeSchedule({
@@ -117,16 +124,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startDate: household.startDate,
       snapshots: safeSnapshots,
       until: new Date(now.getTime() + HORIZON_DAYS * DAY_MS),
+      now,
+      pins,
     });
-  }, [household, safeTasks, safeAbsences, safeSnapshots, now]);
+  }, [household, safeTasks, safeAbsences, safeSnapshots, pins, now]);
 
-  // Begonnene Perioden ohne Snapshot einfrieren.
+  // Beendete Perioden ohne Snapshot einfrieren. Die laufende Periode bleibt live.
   const savingRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!store || !loaded || !household) return;
     const today = berlinDay(now);
     for (const ps of [...schedule.weekly, ...schedule.monthly]) {
-      if (ps.frozen || ps.period.startDay > today) continue;
+      if (ps.frozen || ps.period.endDay >= today) continue;
       const k = `${ps.period.cadence}:${ps.period.key}`;
       if (savingRef.current.has(k)) continue;
       savingRef.current.add(k);

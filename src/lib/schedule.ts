@@ -57,7 +57,12 @@ export interface ScheduleInput {
   absences: Absence[];
   startDate: string;
   snapshots: Snapshot[];
+  /** Ende des berechneten Zeitraums */
   until: Date;
+  /** Aktueller Zeitpunkt. Nur beendete Perioden dürfen aus Snapshots kommen. */
+  now: Date;
+  /** Festgelegte Zuteilungen: periodKey -> taskId -> memberId (z. B. bereits abgehakt) */
+  pins?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -101,6 +106,7 @@ function assignLive(
   saldo: Record<string, number>,
   lastDone: Map<string, number>,
   index: number,
+  pins: Record<string, string>,
 ): Row {
   const applicable = tasks.filter((t) => appliesTo(t, period));
   const eligibleOf = new Map<string, string[]>();
@@ -124,9 +130,6 @@ function assignLive(
     for (const id of elig) soll[id] += t.weight / elig.length;
   }
 
-  // Greedy: schwerste Aufgaben zuerst, an die verfügbare Person mit dem niedrigsten laufenden Saldo.
-  // Bei Gleichstand: wer diese Aufgabe am längsten nicht hatte; danach die am stärksten
-  // eingeschränkte Aufgabe (wenige Personen, die sie lange nicht hatten), damit die Rotation aufgeht.
   const run: Record<string, number> = {};
   for (const m of members) run[m.id] = (saldo[m.id] ?? 0) - soll[m.id];
   const staleness = (taskId: string, memberId: string): number => {
@@ -135,12 +138,27 @@ function assignLive(
   };
   const taskOrder = new Map(applicable.map((t, i) => [t.id, i]));
   const memberOrder = new Map(members.map((m, i) => [m.id, i]));
+  const memberIds = new Set(members.map((m) => m.id));
 
   const chosen = new Map<string, string | null>();
-  let remaining = applicable.filter((t) => (eligibleOf.get(t.id) ?? []).length > 0);
+
+  // Festgelegte Aufgaben (z. B. bereits abgehakt) zuerst; sie zählen in Ist und laufendem Saldo.
   for (const t of applicable) {
-    if ((eligibleOf.get(t.id) ?? []).length === 0) chosen.set(t.id, null);
+    const pinned = pins[t.id];
+    if (pinned === undefined || !memberIds.has(pinned)) continue;
+    chosen.set(t.id, pinned);
+    run[pinned] += t.weight;
+    ist[pinned] += t.weight;
+    lastDone.set(`${t.id}|${pinned}`, index);
   }
+
+  // Greedy: schwerste Aufgaben zuerst, an die verfügbare Person mit dem niedrigsten laufenden Saldo.
+  // Bei Gleichstand: wer diese Aufgabe am längsten nicht hatte; danach die am stärksten
+  // eingeschränkte Aufgabe (wenige Personen, die sie lange nicht hatten), damit die Rotation aufgeht.
+  for (const t of applicable) {
+    if (!chosen.has(t.id) && (eligibleOf.get(t.id) ?? []).length === 0) chosen.set(t.id, null);
+  }
+  let remaining = applicable.filter((t) => !chosen.has(t.id));
 
   while (remaining.length > 0) {
     const topWeight = Math.max(...remaining.map((t) => t.weight));
@@ -242,16 +260,18 @@ function runCadence(cadence: Cadence, input: ScheduleInput): PeriodSchedule[] {
   const untilDay = berlinDay(input.until);
   const periods = periodsBetween(cadence, input.startDate, untilDay);
   const snapByKey = new Map(input.snapshots.filter((s) => s.cadence === cadence).map((s) => [s.periodKey, s]));
+  const today = berlinDay(input.now);
   const saldo: Record<string, number> = {};
   for (const m of input.members) saldo[m.id] = 0;
   const lastDone = new Map<string, number>();
   const out: PeriodSchedule[] = [];
 
   periods.forEach((period, index) => {
-    const snap = snapByKey.get(period.key);
+    // Nur beendete Perioden werden eingefroren; die laufende Periode wird immer live berechnet.
+    const snap = period.endDay < today ? snapByKey.get(period.key) : undefined;
     const row = snap
       ? fromSnapshot(period, snap, input.tasks, input.members, lastDone, index)
-      : assignLive(period, input.tasks, input.members, input.absences, saldo, lastDone, index);
+      : assignLive(period, input.tasks, input.members, input.absences, saldo, lastDone, index, input.pins?.[period.key] ?? {});
     for (const m of input.members) {
       saldo[m.id] = (saldo[m.id] ?? 0) + row.ist[m.id] - row.soll[m.id];
     }

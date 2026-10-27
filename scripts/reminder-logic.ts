@@ -11,7 +11,7 @@ import {
   type Period,
 } from '../src/lib/periods';
 import { buildSnapshot, computeSchedule, type PeriodSchedule, type Schedule } from '../src/lib/schedule';
-import type { Absence, Member, Snapshot, Task } from '../src/lib/types';
+import type { Absence, Completion, Member, Snapshot, Task } from '../src/lib/types';
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
@@ -35,8 +35,7 @@ export interface ReminderInput {
   absences: Absence[];
   startDate: string;
   snapshots: Snapshot[];
-  /** IDs erledigter Aufgaben: `${periodKey}_${taskId}` */
-  completionIds: Set<string>;
+  completions: Completion[];
   /** Bereits versendete Dedup-Schlüssel */
   sentKeys: Set<string>;
   /** Zuletzt gemeldete Zuteilung je Periode: periodKey -> taskId -> memberId */
@@ -70,6 +69,11 @@ export function planReminders(input: ReminderInput): ReminderResult {
   const hour = berlinHour(now);
   const dom = Number(today.slice(8, 10));
 
+  // Erledigte Aufgaben: ID-Menge für "offen" und Pins (bleiben bei der abhakenden Person).
+  const completionIds = new Set(input.completions.map((c) => c.id));
+  const pins: Record<string, Record<string, string>> = {};
+  for (const c of input.completions) (pins[c.periodKey] ??= {})[c.taskId] = c.doneBy;
+
   const schedule = computeSchedule({
     members,
     tasks,
@@ -77,6 +81,8 @@ export function planReminders(input: ReminderInput): ReminderResult {
     startDate: input.startDate,
     snapshots: input.snapshots,
     until: new Date(now.getTime() + HORIZON_DAYS * DAY_MS),
+    now,
+    pins,
   });
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -98,7 +104,7 @@ export function planReminders(input: ReminderInput): ReminderResult {
     (ps?.assignments ?? []).filter(
       (a) => a.memberId === memberId && taskById.has(a.taskId) && (!filter || filter(a.taskId)),
     );
-  const isOpen = (period: Period, taskId: string) => !input.completionIds.has(`${period.key}_${taskId}`);
+  const isOpen = (period: Period, taskId: string) => !completionIds.has(`${period.key}_${taskId}`);
   const names = (list: { taskId: string }[]) => list.map((a) => taskById.get(a.taskId)?.name ?? a.taskId).join(', ');
   const weekendOnly = (taskId: string) => taskById.get(taskId)?.window === 'weekend';
 
@@ -196,12 +202,12 @@ export function planReminders(input: ReminderInput): ReminderResult {
     assignmentUpdates[ps.period.key] = current;
   }
 
-  // Begonnene Perioden ohne Snapshot einfrieren (wie im Client).
+  // Beendete Perioden ohne Snapshot einfrieren (wie im Client). Laufende Perioden bleiben live.
   const newSnapshots: Snapshot[] = [];
   const savedAt = now.toISOString();
   const haveSnap = new Set(input.snapshots.map((s) => `${s.cadence}:${s.periodKey}`));
   for (const ps of [...schedule.weekly, ...schedule.monthly]) {
-    if (ps.frozen || ps.period.startDay > today) continue;
+    if (ps.frozen || ps.period.endDay >= today) continue;
     if (haveSnap.has(`${ps.period.cadence}:${ps.period.key}`)) continue;
     newSnapshots.push(buildSnapshot(ps, savedAt));
   }

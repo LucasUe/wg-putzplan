@@ -35,9 +35,7 @@ async function main(): Promise<void> {
   const tasks = (await db.collection('tasks').get()).docs.map((d) => d.data() as Task);
   const absences = (await db.collection('absences').get()).docs.map((d) => d.data() as Absence);
   const snapshots = (await db.collection('snapshots').get()).docs.map((d) => d.data() as Snapshot);
-  const completionIds = new Set(
-    (await db.collection('completions').get()).docs.map((d) => (d.data() as Completion).id),
-  );
+  const completions = (await db.collection('completions').get()).docs.map((d) => d.data() as Completion);
   const sentDocs = await db.collection('sentReminders').get();
   const sentKeys = new Set<string>();
   const lastAssignments: Record<string, Record<string, string | null>> = {};
@@ -56,7 +54,7 @@ async function main(): Promise<void> {
     absences,
     startDate: hh.startDate,
     snapshots,
-    completionIds,
+    completions,
     sentKeys,
     lastAssignments,
   });

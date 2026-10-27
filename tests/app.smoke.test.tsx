@@ -70,9 +70,9 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     expect(container.textContent).toContain('Dieser Monat');
     expect(container.textContent).toContain('Wohnung wischen');
 
-    // Snapshots wurden im Demo-Speicher für begonnene Perioden angelegt
+    // Nur beendete Perioden werden eingefroren; die laufende Woche bleibt live
     const data = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
-    expect(data.snapshots.map((s: { periodKey: string }) => s.periodKey)).toContain('2026-W44');
+    expect(data.snapshots.map((s: { periodKey: string }) => s.periodKey)).not.toContain('2026-W44');
 
     // Abhaken
     const check = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Abhaken'))!;

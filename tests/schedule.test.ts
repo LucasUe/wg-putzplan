@@ -40,6 +40,7 @@ function input(overrides: Partial<ScheduleInput> = {}): ScheduleInput {
     startDate: '2026-10-26',
     snapshots: [],
     until: new Date('2026-11-29T12:00:00Z'), // bis einschließlich November
+    now: new Date('2026-10-27T12:00:00Z'),
     ...overrides,
   };
 }
@@ -216,7 +217,8 @@ describe('Aufgaben-Lebenszyklus', () => {
 
 describe('Snapshots', () => {
   it('eingefrorene Perioden bleiben bei späteren Änderungen gleich und gehen in die Salden ein', () => {
-    const first = computeSchedule(input({ until: new Date('2026-11-15T12:00:00Z') }));
+    const late = new Date('2026-11-16T12:00:00Z'); // beide Wochen sind beendet
+    const first = computeSchedule(input({ until: new Date('2026-11-15T12:00:00Z'), now: late }));
     const snaps: Snapshot[] = first.weekly
       .slice(0, 2)
       .map((p) => buildSnapshot(p, '2026-10-26T06:00:00Z'));
@@ -226,12 +228,70 @@ describe('Snapshots', () => {
         absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01')],
         snapshots: snaps,
         until: new Date('2026-11-15T12:00:00Z'),
+        now: late,
       }),
     );
     expect(holders(changed, 'weekly', '2026-W44')).toEqual(holders(first, 'weekly', '2026-W44'));
     expect(holders(changed, 'weekly', '2026-W45')).toEqual(holders(first, 'weekly', '2026-W45'));
     expect(changed.weekly[0].frozen).toBe(true);
     expect(changed.weekly[2].frozen).toBe(false);
+  });
+});
+
+describe('Laufende Woche, Pins und Snapshots (Review-Runde 1)', () => {
+  const THU = new Date('2026-10-29T12:00:00Z'); // Donnerstag, KW 44 läuft
+  const MON_AFTER = new Date('2026-11-02T08:00:00Z'); // KW 44 beendet
+
+  it('(a) Snapshot wird nur für beendete Perioden benutzt', () => {
+    const first = computeSchedule(input({ until: new Date('2026-11-08T12:00:00Z'), now: THU }));
+    const snap = buildSnapshot(first.weekly[0], '2026-10-26T06:00:00Z');
+    // Absichtlich abweichender eingefrorener Stand
+    const tampered = { ...snap, items: { ...snap.items, saugen: { ...snap.items.saugen, memberId: 'paul' } } };
+    const liveNow = computeSchedule(input({ snapshots: [tampered], until: new Date('2026-11-08T12:00:00Z'), now: THU }));
+    expect(liveNow.weekly[0].frozen).toBe(false);
+    expect(holders(liveNow, 'weekly', '2026-W44').saugen).not.toBe('paul');
+    const afterEnd = computeSchedule(input({ snapshots: [tampered], until: new Date('2026-11-08T12:00:00Z'), now: MON_AFTER }));
+    expect(afterEnd.weekly[0].frozen).toBe(true);
+    expect(holders(afterEnd, 'weekly', '2026-W44').saugen).toBe('paul');
+  });
+
+  it('(b) Abwesenheit Fr–So mitten in der laufenden Woche: Saugen/Küche wandern, Müll bleibt verfügbar', () => {
+    const s = computeSchedule(
+      input({
+        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')],
+        until: new Date('2026-11-01T12:00:00Z'),
+        now: THU,
+      }),
+    );
+    const w = holders(s, 'weekly', '2026-W44');
+    expect(w.saugen).not.toBe('lucas');
+    expect(w.kueche).not.toBe('lucas');
+    expect(w.muell).not.toBeNull();
+    const muell = s.weekly[0].assignments.find((a) => a.taskId === 'muell')!;
+    expect(muell.eligible).toContain('lucas');
+    const sau = s.weekly[0].assignments.find((a) => a.taskId === 'saugen')!;
+    expect(sau.reassigned).toBe(true);
+    expect(sau.absentMemberIds).toContain('lucas');
+  });
+
+  it('(c) Bereits von Paul abgehakter Müll bleibt bei Paul, auch wenn er danach Fr–So weg ist', () => {
+    const s = computeSchedule(
+      input({
+        absences: [abs('p', 'paul', '2026-10-30', '2026-11-01')],
+        pins: { '2026-W44': { muell: 'paul' } },
+        until: new Date('2026-11-01T12:00:00Z'),
+        now: THU,
+      }),
+    );
+    expect(holders(s, 'weekly', '2026-W44').muell).toBe('paul');
+  });
+
+  it('neue Aufgabe mitten in der laufenden Woche erscheint sofort', () => {
+    const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-10-27T10:00:00+01:00' };
+    const s = computeSchedule(
+      input({ tasks: [...WEEKLY, late], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-28T12:00:00Z') }),
+    );
+    expect(Object.keys(holders(s, 'weekly', '2026-W44'))).toContain('neu');
   });
 });
 
@@ -285,6 +345,7 @@ describe('Langzeit-Fairness', () => {
       startDate: '2026-10-26',
       snapshots: [],
       until: new Date('2027-10-20T12:00:00Z'),
+      now: new Date('2026-10-27T12:00:00Z'),
     });
     const weekly = getBalances(s.weekly, MEMBERS);
     const monthly = getBalances(s.monthly, MEMBERS);
