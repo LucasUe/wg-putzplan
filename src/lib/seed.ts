@@ -12,7 +12,7 @@ export function seedHousehold(pinHash: string): Household {
       { id: 'marleen', name: 'Marlen', color: '#10B981' },
       { id: 'paul', name: 'Paul', color: '#F97316' },
     ],
-    pinHash,
+    pins: { lucas: pinHash, marleen: pinHash, paul: pinHash },
     startDate: SEED_START_DATE,
   };
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DemoBanner, Button, Card, inputClass } from '../components/ui';
 import { useApp } from '../lib/AppContext';
-import { sha256Hex } from '../lib/crypto';
+import { pinHashFor, sha256Hex } from '../lib/crypto';
 import type { Member } from '../lib/types';
 
 export function Login() {
@@ -18,7 +18,7 @@ export function Login() {
     setError(null);
     try {
       const hash = await sha256Hex(pin.trim());
-      if (hash === household.pinHash) {
+      if (hash === pinHashFor(household, selected.id)) {
         login(selected.id);
       } else {
         setError('Die PIN stimmt nicht.');
@@ -62,7 +62,7 @@ export function Login() {
           </div>
           <form onSubmit={submit} className="space-y-3">
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--muted)]">WG-PIN</span>
+              <span className="text-xs font-medium text-[var(--muted)]">Deine PIN</span>
               <input
                 className={inputClass}
                 type="password"

@@ -74,7 +74,7 @@ Die Schritte sind nummeriert. Wenn du nicht weiterkommst, schick mir den Schritt
 2. Den gesamten Inhalt durch den Inhalt der Datei **`firestore.rules`** aus dem Projekt ersetzen. Dabei auf den Inhalt des Projekts schauen, nicht auf die Testregeln.
 3. Auf **Veröffentlichen** klicken.
 
-Die Regeln sind bewusst einfach: Die App hat keine Benutzerkonten, der WG-PIN schützt nur die Oberfläche. Es werden keine sensiblen Daten gespeichert.
+Die Regeln sind bewusst einfach: Die App hat keine Benutzerkonten, die PINs schützen nur die Oberfläche. Es werden keine sensiblen Daten gespeichert.
 
 ---
 
@@ -102,14 +102,14 @@ Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den 
 
 ---
 
-## Schritt 8: WG-PIN ändern
+## Schritt 8: Eigene PIN ändern
 
-Die Start-PIN ist **1234**. Ändere sie sofort:
+Jede Person hat ihre eigene PIN. Start-PIN bei einer neuen Installation ist **1234**, in eurer WG haben Marlen und Paul die Start-PIN **0000**.
 
-1. Öffne die App, melde dich mit deinem Namen und der PIN `1234` an.
-2. Tab **Mehr** → Abschnitt **WG-PIN** → neue PIN eintragen → **PIN ändern**.
+1. Öffne die App, tippe auf deinen Namen und melde dich mit deiner PIN an.
+2. Tab **Mehr** → Abschnitt **Meine PIN** → aktuelle PIN und neue PIN eintragen → **PIN ändern**.
 
-Die neue PIN gilt danach für alle Geräte beim nächsten Anmelden.
+Die neue PIN gilt nur für dich, auf allen deinen Geräten.
 
 ---
 

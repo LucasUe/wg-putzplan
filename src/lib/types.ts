@@ -8,7 +8,10 @@ export interface Member {
 
 export interface Household {
   members: Member[];
-  pinHash: string;
+  /** PIN-Hash je Person (memberId -> SHA-256). */
+  pins?: Record<string, string>;
+  /** Alter gemeinsamer WG-PIN; gilt nur noch für Personen ohne eigenen Eintrag in `pins`. */
+  pinHash?: string;
   startDate: Day;
 }
 

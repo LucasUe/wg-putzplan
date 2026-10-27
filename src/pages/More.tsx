@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge, Button, Card, Field, SectionTitle, inputClass } from '../components/ui';
 import { useApp } from '../lib/AppContext';
-import { sha256Hex } from '../lib/crypto';
+import { pinHashFor, sha256Hex } from '../lib/crypto';
 import { startedPeriods, getBalances } from '../lib/schedule';
 import { enablePush, isIOS, isStandalone, pushSupported, type PushResult } from '../lib/push';
 
@@ -16,10 +16,11 @@ const PUSH_TEXT: Record<PushResult, string> = {
 };
 
 export function More() {
-  const { members, memberById, schedule, now, completions, store, currentMember, logout, mode } = useApp();
+  const { household, members, memberById, schedule, now, completions, store, currentMember, logout, mode } = useApp();
   const [pushResult, setPushResult] = useState<PushResult | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [newPin, setNewPin] = useState('');
+  const [oldPin, setOldPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
 
   const weeklyBal = getBalances(startedPeriods(schedule.weekly, now), members);
@@ -35,10 +36,22 @@ export function More() {
 
   const changePin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPin.trim().length < 4) return setPinMsg('Mindestens 4 Zeichen.');
-    await store.updateHousehold({ pinHash: await sha256Hex(newPin.trim()) });
+    if (!currentMember) return;
+    if ((await sha256Hex(oldPin.trim())) !== pinHashFor(household, currentMember.id)) {
+      return setPinMsg('Die aktuelle PIN stimmt nicht.');
+    }
+    if (newPin.trim().length < 4) return setPinMsg('Die neue PIN braucht mindestens 4 Zeichen.');
+    // Alle Einträge mitschreiben, damit Personen ohne eigenen Eintrag ihre bisherige PIN behalten.
+    const pins: Record<string, string> = {};
+    for (const m of members) {
+      const h = pinHashFor(household, m.id);
+      if (h) pins[m.id] = h;
+    }
+    pins[currentMember.id] = await sha256Hex(newPin.trim());
+    await store.updateHousehold({ pins });
+    setOldPin('');
     setNewPin('');
-    setPinMsg('PIN wurde geändert. Andere Geräte brauchen die neue PIN beim nächsten Anmelden.');
+    setPinMsg('Deine PIN wurde geändert. Auf anderen Geräten brauchst du beim nächsten Anmelden die neue PIN.');
   };
 
   return (
@@ -87,9 +100,12 @@ export function More() {
         {pushResult && <p className="text-sm">{PUSH_TEXT[pushResult]}</p>}
       </Card>
 
-      <SectionTitle>WG-PIN</SectionTitle>
+      <SectionTitle>Meine PIN</SectionTitle>
       <Card className="p-4">
         <form onSubmit={changePin} className="space-y-3">
+          <Field label="Aktuelle PIN">
+            <input className={inputClass} type="password" inputMode="numeric" value={oldPin} onChange={(e) => setOldPin(e.target.value)} />
+          </Field>
           <Field label="Neue PIN">
             <input className={inputClass} type="password" inputMode="numeric" value={newPin} onChange={(e) => setNewPin(e.target.value)} />
           </Field>
