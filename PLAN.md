@@ -1,6 +1,6 @@
 # WG-Putzplan – Umsetzungsplan
 
-Web-App (PWA) für Lucas, Marleen und Paul zum Verteilen und Abhaken von wöchentlichen und monatlichen WG-Aufgaben, mit fairer automatischer Umverteilung bei Abwesenheit und Push-Erinnerungen. Komplett kostenlos: Hosting über GitHub Pages.
+Web-App (PWA) für Lucas, Marlen und Paul zum Verteilen und Abhaken von wöchentlichen und monatlichen WG-Aufgaben, mit fairer automatischer Umverteilung bei Abwesenheit und Push-Erinnerungen. Komplett kostenlos: Hosting über GitHub Pages.
 
 ---
 
@@ -12,7 +12,7 @@ Web-App (PWA) für Lucas, Marleen und Paul zum Verteilen und Abhaken von wöchen
 | Hosting | **GitHub Pages**, Deploy per GitHub Action bei jedem Push auf `main` | Kostenlos, kein Server |
 | Daten (geteilt für alle 3) | **Firebase Firestore** (kostenloser Spark-Plan) | GitHub Pages ist nur statisch – die drei brauchen einen gemeinsamen Datenstand mit Live-Sync. Firestore läuft direkt aus dem Browser, das Gratis-Kontingent reicht um Größenordnungen |
 | Erinnerungen | **GitHub Actions Cron** (kostenlos) startet ein Node-Skript, das Push-Nachrichten verschickt (Web Push mit VAPID-Keys) | Kein bezahlter Server oder Cloud Functions nötig |
-| Login | Name auswählen (Lucas / Marleen / Paul) + gemeinsamer WG-PIN, im Browser gemerkt | Einfach, reicht aus, weil keine sensiblen Daten gespeichert werden |
+| Login | Name auswählen (Lucas / Marlen / Paul) + gemeinsamer WG-PIN, im Browser gemerkt | Einfach, reicht aus, weil keine sensiblen Daten gespeichert werden |
 
 **Zugang für Mitbewohner:** Link zur Seite (`https://<user>.github.io/<repo>/`) und den WG-PIN in den Gruppenchat schicken → Namen auswählen → „Zum Home-Bildschirm“ → Benachrichtigungen erlauben.
 
@@ -73,7 +73,7 @@ Prinzip **„Soll vs. Ist“** pro Person, getrennt für wöchentliche und monat
 5. Ist niemand verfügbar, bleibt die Aufgabe unzugeteilt und wird markiert.
 
 **Beispiel (aus der Anforderung):** Lucas ist zwei Wochen weg.
-- Woche 1: Marleen und Paul haben je Soll 1,5. Marleen bekommt 2 Aufgaben (+0,5), Paul 1 (−0,5).
+- Woche 1: Marlen und Paul haben je Soll 1,5. Marlen bekommt 2 Aufgaben (+0,5), Paul 1 (−0,5).
 - Woche 2: Paul hat den niedrigeren Saldo → Paul bekommt 2 Aufgaben. Danach steht es ausgeglichen. ✔
 
 **Stabilität:** Die Zuteilung wird deterministisch aus Startdatum, Aufgaben und Abwesenheiten berechnet (reine Funktion `computeSchedule`, ausführlich unit-getestet). Sobald eine Periode begonnen hat, wird ihre Zuteilung in `snapshots` eingefroren, damit spätere Änderungen die Vergangenheit nicht verschieben. Zukünftige Wochen werden live neu berechnet, sobald jemand eine Abwesenheit einträgt.
@@ -115,7 +115,7 @@ Secrets in GitHub: `FIREBASE_SERVICE_ACCOUNT`, `VAPID_PRIVATE_KEY`. Der öffentl
 ## 7. Design
 
 - Mobile-first, eine Spalte, unten eine Tab-Leiste (Übersicht · Plan · Abwesend · Aufgaben · Mehr).
-- Personenfarben: Lucas **Blau** `#3B82F6`, Marleen **Grün** `#10B981`, Paul **Orange** `#F97316`, überall konsistent als Punkt bzw. Kartenrand.
+- Personenfarben: Lucas **Blau** `#3B82F6`, Marlen **Grün** `#10B981`, Paul **Orange** `#F97316`, überall konsistent als Punkt bzw. Kartenrand.
 - Karten mit großem Emoji-Icon (🧹 Saugen, 🍳 Küche, 🗑️ Müll, 🧽 Wischen, 🧊 Kühlschrank, 📦 Pappe/Glas).
 - Status: offen (neutral), erledigt (abgehakt, gedimmt), überfällig (roter Rand).
 - Hell- und Dunkelmodus automatisch, Schrift Inter, abgerundete Ecken, viel Weißraum.

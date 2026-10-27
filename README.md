@@ -1,6 +1,6 @@
 # WG-Putzplan
 
-Progressive Web-App für Lucas, Marleen und Paul: wöchentliche und monatliche Putzaufgaben verteilen, abhaken und fair umverteilen, wenn jemand abwesend ist. Erinnerungen per Web-Push.
+Progressive Web-App für Lucas, Marlen und Paul: wöchentliche und monatliche Putzaufgaben verteilen, abhaken und fair umverteilen, wenn jemand abwesend ist. Erinnerungen per Web-Push.
 
 - Frontend: Vite, React, TypeScript, Tailwind CSS, HashRouter
 - Daten: Firebase Firestore (ohne Config läuft die App im Demo-Modus im Browser)

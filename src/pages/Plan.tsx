@@ -57,13 +57,13 @@ export function Plan() {
     );
   };
 
-  const weeks = upcoming(schedule.weekly, 8);
+  const weeks = upcoming(schedule.weekly, 5);
   const months = upcoming(schedule.monthly, 3);
 
   return (
     <div className="pt-6">
       <h1 className="mb-1 text-2xl font-bold tracking-tight">Plan</h1>
-      <p className="text-sm text-[var(--muted)]">Nächste 8 Wochen und 3 Monate. Stand: {berlinDay(new Date())}</p>
+      <p className="text-sm text-[var(--muted)]">Nächste 5 Wochen und 3 Monate. Stand: {berlinDay(new Date())}</p>
 
       <SectionTitle>Wochen</SectionTitle>
       {weeks.map((ps) => block(ps, periodTitle(ps.period)))}

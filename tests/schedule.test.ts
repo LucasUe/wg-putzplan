@@ -477,3 +477,20 @@ function addDaysStr(day: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+describe('Plan läuft unbegrenzt weiter', () => {
+  it('erzeugt auch Jahre nach dem Start lückenlos Wochen und Monate mit Zuteilung', () => {
+    const now = new Date('2029-06-13T12:00:00Z');
+    const s = computeSchedule(input({ now, until: new Date(now.getTime() + 100 * 86_400_000) }));
+    const upcomingWeeks = s.weekly.filter((p) => p.period.endDay >= berlinDay(now)).slice(0, 5);
+    expect(upcomingWeeks).toHaveLength(5);
+    for (let i = 1; i < upcomingWeeks.length; i++) {
+      expect(upcomingWeeks[i].period.startDay > upcomingWeeks[i - 1].period.endDay).toBe(true);
+    }
+    for (const p of upcomingWeeks) {
+      expect(p.assignments).toHaveLength(WEEKLY.length);
+      expect(p.assignments.every((a) => a.memberId !== null)).toBe(true);
+    }
+    expect(s.monthly.filter((p) => p.period.endDay >= berlinDay(now)).length).toBeGreaterThanOrEqual(3);
+  });
+});

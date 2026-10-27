@@ -115,7 +115,7 @@ Die neue PIN gilt danach für alle Geräte beim nächsten Anmelden.
 
 ## Schritt 9: Mitbewohner einladen und App auf den Homescreen legen
 
-Schick Marleen und Paul den Link `https://lucasue.github.io/wg-putzplan/` und die PIN (am besten über den Gruppenchat).
+Schick Marlen und Paul den Link `https://lucasue.github.io/wg-putzplan/` und die PIN (am besten über den Gruppenchat).
 
 **iPhone (iOS 16.4 oder neuer):**
 1. Link in **Safari** öffnen (nicht in Chrome oder einer anderen App).

@@ -9,7 +9,7 @@ export function seedHousehold(pinHash: string): Household {
   return {
     members: [
       { id: 'lucas', name: 'Lucas', color: '#3B82F6' },
-      { id: 'marleen', name: 'Marleen', color: '#10B981' },
+      { id: 'marleen', name: 'Marlen', color: '#10B981' },
       { id: 'paul', name: 'Paul', color: '#F97316' },
     ],
     pinHash,
