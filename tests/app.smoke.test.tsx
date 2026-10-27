@@ -2,8 +2,13 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
+
+// Smoke-Test läuft immer im Demo-Modus, auch wenn eine echte Firebase-Config eingetragen ist.
+vi.mock('../src/firebaseConfig', () => ({
+  firebaseConfig: { apiKey: '', authDomain: '', projectId: '', storageBucket: '', messagingSenderId: '', appId: '' },
+}));
 
 // Hinweis: globalThis.IS_REACT_ACT_ENVIRONMENT setzen, damit act() sauber funktioniert.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

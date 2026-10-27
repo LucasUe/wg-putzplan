@@ -109,7 +109,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err);
-  process.exit(1);
-});
+// Explizit beenden: Die offene Firestore-Verbindung hielte den Prozess sonst am Leben.
+main().then(
+  () => process.exit(0),
+  (err: unknown) => {
+    console.error(err);
+    process.exit(1);
+  },
+);
