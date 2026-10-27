@@ -30,8 +30,10 @@ export interface TaskAssignment {
   eligible: string[];
   /** Weicht die Zuteilung von der Rotation ohne Abwesenheiten ab? */
   reassigned: boolean;
-  /** Personen, die für das Fenster dieser Aufgabe abwesend sind (nur bei Umverteilung relevant) */
+  /** Personen, die in dieser Periode für mindestens eine Aufgabe nicht verfügbar sind */
   absentMemberIds: string[];
+  /** Wenn umverteilt und die ideale Person abwesend ist: deren ID */
+  takenFor: string | null;
   /** true, wenn aus einem eingefrorenen Snapshot übernommen */
   frozen: boolean;
 }
@@ -97,6 +99,63 @@ interface Row {
   ist: Record<string, number>;
 }
 
+/**
+ * Wasserfüllung für eine Aufgabe: verteilt das Gewicht so auf die Basislasten, dass das
+ * Ergebnis (Basis + Anteil) auf einem gemeinsamen Niveau L liegt, wo es Anteile gibt.
+ */
+function waterfill(base: number[], weight: number): number[] {
+  const order = base.map((_, i) => i).sort((a, b) => base[a] - base[b]);
+  const n = base.length;
+  let prefix = 0;
+  let level = 0;
+  for (let k = 1; k <= n; k++) {
+    prefix += base[order[k - 1]];
+    const candidate = (weight + prefix) / k;
+    if (k === n || candidate <= base[order[k]]) {
+      level = candidate;
+      break;
+    }
+  }
+  return base.map((b) => Math.max(0, level - b));
+}
+
+/**
+ * Max-min-faire Soll-Verteilung: Jede Aufgabe verteilt ihr Gewicht nur auf ihre verfügbaren
+ * Personen. Iterativ (Koordinatenabstieg) wird je Aufgabe neu gewässert, bis sich nichts mehr ändert.
+ */
+export function fairShares(items: { weight: number; eligible: string[] }[], memberIds: string[]): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const id of memberIds) total[id] = 0;
+  const shares: number[][] = items.map((it) =>
+    it.eligible.map(() => (it.eligible.length ? it.weight / it.eligible.length : 0)),
+  );
+  items.forEach((it, i) => it.eligible.forEach((id, j) => (total[id] = (total[id] ?? 0) + shares[i][j])));
+  for (let iter = 0; iter < 200; iter++) {
+    let maxDelta = 0;
+    items.forEach((it, i) => {
+      if (it.eligible.length === 0) return;
+      const base = it.eligible.map((id, j) => (total[id] ?? 0) - shares[i][j]);
+      const next = waterfill(base, it.weight);
+      it.eligible.forEach((id, j) => {
+        const d = next[j] - shares[i][j];
+        maxDelta = Math.max(maxDelta, Math.abs(d));
+        total[id] = (total[id] ?? 0) + d;
+        shares[i][j] = next[j];
+      });
+    });
+    if (maxDelta < 1e-9) break;
+  }
+  return total;
+}
+
+/** Erklärtext für eine umverteilte Aufgabe, oder null (kein Badge). */
+export function reassignBadge(a: TaskAssignment, nameOf: (id: string) => string): string | null {
+  if (!a.reassigned) return null;
+  if (a.takenFor) return `übernommen für ${nameOf(a.takenFor)} (abwesend)`;
+  if (a.absentMemberIds.length) return `getauscht wegen Abwesenheit von ${a.absentMemberIds.map(nameOf).join(' und ')}`;
+  return null;
+}
+
 /** Rechnet die Zuteilung für eine Periode, die noch nicht eingefroren ist. */
 function assignLive(
   period: Period,
@@ -125,10 +184,11 @@ function assignLive(
     soll[m.id] = 0;
     ist[m.id] = 0;
   }
-  for (const t of applicable) {
-    const elig = eligibleOf.get(t.id) ?? [];
-    for (const id of elig) soll[id] += t.weight / elig.length;
-  }
+  const sollMap = fairShares(
+    applicable.map((t) => ({ weight: t.weight, eligible: eligibleOf.get(t.id) ?? [] })),
+    members.map((m) => m.id),
+  );
+  for (const m of members) soll[m.id] = sollMap[m.id] ?? 0;
 
   const run: Record<string, number> = {};
   for (const m of members) run[m.id] = (saldo[m.id] ?? 0) - soll[m.id];
@@ -210,6 +270,7 @@ function assignLive(
     eligible: eligibleOf.get(t.id) ?? [],
     reassigned: false,
     absentMemberIds: [],
+    takenFor: null,
     frozen: false,
   }));
   return { period, frozen: false, assignments, soll, ist };
@@ -235,8 +296,12 @@ function fromSnapshot(
     soll[m.id] = 0;
     ist[m.id] = 0;
   }
+  const sollMap = fairShares(
+    entries.map(([, item]) => ({ weight: item.weight, eligible: item.eligible })),
+    members.map((m) => m.id),
+  );
+  for (const m of members) soll[m.id] = sollMap[m.id] ?? 0;
   const assignments: TaskAssignment[] = entries.map(([taskId, item]) => {
-    for (const id of item.eligible) soll[id] = (soll[id] ?? 0) + item.weight / item.eligible.length;
     if (item.memberId) {
       ist[item.memberId] = (ist[item.memberId] ?? 0) + item.weight;
       lastDone.set(`${taskId}|${item.memberId}`, index);
@@ -249,6 +314,7 @@ function fromSnapshot(
       eligible: item.eligible,
       reassigned: false,
       absentMemberIds: [],
+      takenFor: null,
       frozen: true,
     };
   });
@@ -296,17 +362,18 @@ export function computeSchedule(input: ScheduleInput): Schedule {
     monthly: runCadence('monthly', { ...input, absences: [], snapshots: [] }),
   };
   const flag = (cadence: Cadence, ps: PeriodSchedule[]): PeriodSchedule[] => {
-    const members = input.members;
+    const memberIds = input.members.map((m) => m.id);
     const idealByKey = new Map(ideal[cadence].map((p) => [p.period.key, p]));
     return ps.map((p) => {
       const ref = idealByKey.get(p.period.key);
       const refAssign = new Map(ref?.assignments.map((a) => [a.taskId, a]) ?? []);
+      // Personen, die in dieser Periode für mindestens eine Aufgabe nicht verfügbar sind
+      const absentMemberIds = memberIds.filter((id) => p.assignments.some((a) => !a.eligible.includes(id)));
       const assignments = p.assignments.map((a) => {
-        const r = refAssign.get(a.taskId);
-        const idealMember = r?.memberId ?? null;
-        if (idealMember === null || idealMember === a.memberId) return a;
-        const absentMemberIds = members.map((m) => m.id).filter((id) => !a.eligible.includes(id));
-        return { ...a, reassigned: true, absentMemberIds };
+        const idealMember = refAssign.get(a.taskId)?.memberId ?? null;
+        if (idealMember === null || idealMember === a.memberId) return { ...a, absentMemberIds };
+        const takenFor = a.eligible.includes(idealMember) ? null : idealMember;
+        return { ...a, reassigned: true, absentMemberIds, takenFor };
       });
       return { ...p, assignments };
     });

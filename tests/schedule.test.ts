@@ -3,8 +3,10 @@ import { berlinDay, weekPeriod, windowFor, monthPeriod, type Cadence, type TaskW
 import {
   buildSnapshot,
   computeSchedule,
+  fairShares,
   getBalances,
   isAvailable,
+  reassignBadge,
   type Schedule,
   type ScheduleInput,
 } from '../src/lib/schedule';
@@ -292,6 +294,115 @@ describe('Laufende Woche, Pins und Snapshots (Review-Runde 1)', () => {
       input({ tasks: [...WEEKLY, late], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-28T12:00:00Z') }),
     );
     expect(Object.keys(holders(s, 'weekly', '2026-W44'))).toContain('neu');
+  });
+});
+
+describe('Max-min-faires Soll (Review-Runde 2)', () => {
+  const ALL = ['lucas', 'marleen', 'paul'];
+  const close = (shares: Record<string, number>, expected: Record<string, number>) => {
+    for (const k of Object.keys(expected)) expect(shares[k], k).toBeCloseTo(expected[k], 6);
+  };
+
+  it('(a) Lucas nur für Müll verfügbar, drei Aufgaben mit Gewicht 1 -> Soll 1/1/1', () => {
+    const shares = fairShares(
+      [
+        { weight: 1, eligible: ['marleen', 'paul'] }, // Saugen
+        { weight: 1, eligible: ['marleen', 'paul'] }, // Küche
+        { weight: 1, eligible: ALL }, // Müll (nur Lucas wäre sonst zu wenig)
+      ],
+      ALL,
+    );
+    // Lucas ist nur bei Müll dabei; das Gleichgewicht verlangt 1/1/1
+    close(shares, { lucas: 1, marleen: 1, paul: 1 });
+  });
+
+  it('(b) Lucas komplett weg -> Soll 0 / 1,5 / 1,5', () => {
+    const shares = fairShares(
+      [
+        { weight: 1, eligible: ['marleen', 'paul'] },
+        { weight: 1, eligible: ['marleen', 'paul'] },
+        { weight: 1, eligible: ['marleen', 'paul'] },
+      ],
+      ALL,
+    );
+    close(shares, { lucas: 0, marleen: 1.5, paul: 1.5 });
+  });
+
+  it('(c) Gewichte 3,1,1 alle da -> Soll je 5/3', () => {
+    const shares = fairShares(
+      [
+        { weight: 3, eligible: ALL },
+        { weight: 1, eligible: ALL },
+        { weight: 1, eligible: ALL },
+      ],
+      ALL,
+    );
+    close(shares, { lucas: 5 / 3, marleen: 5 / 3, paul: 5 / 3 });
+  });
+
+  it('Niemand verfügbar -> Soll 0 und keine Division durch null', () => {
+    const shares = fairShares([{ weight: 2, eligible: [] }], ALL);
+    close(shares, { lucas: 0, marleen: 0, paul: 0 });
+  });
+
+  it('(d) KW1: Lucas nur für Müll verfügbar, KW2 alle da -> in KW2 bekommt jeder genau eine Aufgabe', () => {
+    const s = computeSchedule(
+      input({
+        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')], // Fr–So KW44
+        until: new Date('2026-11-08T12:00:00Z'),
+        now: new Date('2026-11-09T12:00:00Z'),
+      }),
+    );
+    const kw2 = holders(s, 'weekly', '2026-W45');
+    const counts = countBy(Object.values(kw2));
+    for (const m of MEMBERS) expect(counts[m.id], m.name).toBe(1);
+  });
+
+  it('Soll-Summe bleibt Gesamtgewicht, Lucas (nur bei Müll verfügbar) wie die anderen', () => {
+    const s = computeSchedule(
+      input({
+        absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')],
+        until: new Date('2026-11-01T12:00:00Z'),
+        now: new Date('2026-10-29T12:00:00Z'),
+      }),
+    );
+    const p = s.weekly[0];
+    expect(p.soll.lucas).toBeCloseTo(p.soll.marleen, 6); // Lucas ist bei Müll verfügbar: gleiches Soll
+    expect(p.soll.lucas + p.soll.marleen + p.soll.paul).toBeCloseTo(3, 6);
+  });
+});
+
+describe('Umverteilungs-Badge (Review-Runde 2)', () => {
+  const nameOf = (id: string) => ({ lucas: 'Lucas', marleen: 'Marleen', paul: 'Paul' })[id] ?? id;
+  const base = {
+    taskId: 't', name: 't', weight: 1, memberId: 'marleen', eligible: ['marleen', 'paul'],
+    frozen: false, absentMemberIds: [] as string[], takenFor: null as string | null,
+  };
+
+  it('ideale Person abwesend -> "übernommen für <Name> (abwesend)"', () => {
+    expect(reassignBadge({ ...base, reassigned: true, takenFor: 'lucas', absentMemberIds: ['lucas'] }, nameOf)).toBe(
+      'übernommen für Lucas (abwesend)',
+    );
+  });
+
+  it('ideale Person verfügbar, Abwesenheit in der Periode -> "getauscht wegen Abwesenheit von <Namen>"', () => {
+    expect(reassignBadge({ ...base, reassigned: true, takenFor: null, absentMemberIds: ['lucas'] }, nameOf)).toBe(
+      'getauscht wegen Abwesenheit von Lucas',
+    );
+  });
+
+  it('keine Abwesenheit, nur Historie -> kein Badge', () => {
+    expect(reassignBadge({ ...base, reassigned: true, takenFor: null, absentMemberIds: [] }, nameOf)).toBeNull();
+    expect(reassignBadge({ ...base, reassigned: false }, nameOf)).toBeNull();
+  });
+
+  it('Schedule: Saugen von Lucas (abwesend Fr–So) bekommt den Grund-Text mit Namen', () => {
+    const s = computeSchedule(
+      input({ absences: [abs('l', 'lucas', '2026-10-30', '2026-11-01')], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-29T12:00:00Z') }),
+    );
+    const sau = s.weekly[0].assignments.find((a) => a.taskId === 'saugen')!;
+    expect(sau.reassigned).toBe(true);
+    expect(reassignBadge(sau, nameOf)).toMatch(/^(übernommen für Lucas \(abwesend\)|getauscht wegen Abwesenheit von Lucas)$/);
   });
 });
 

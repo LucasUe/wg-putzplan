@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Badge, Button, MemberDot } from './ui';
 import { completionId, taskStatus, useApp } from '../lib/AppContext';
 import { formatCountdown, formatRange, rangeEnd, windowFor, type Period } from '../lib/periods';
-import type { TaskAssignment } from '../lib/schedule';
+import { reassignBadge, type TaskAssignment } from '../lib/schedule';
 import type { Task } from '../lib/types';
 
 interface Props {
@@ -22,9 +22,7 @@ export function TaskCard({ period, task, assignment }: Props) {
   const done = Boolean(completion);
   const status = taskStatus(end, done, now);
   const owner = assignment?.memberId ? memberById.get(assignment.memberId) : undefined;
-  const absentNames = (assignment?.absentMemberIds ?? [])
-    .map((mid) => memberById.get(mid)?.name)
-    .filter((n): n is string => Boolean(n));
+  const badgeText = assignment ? reassignBadge(assignment, (id) => memberById.get(id)?.name ?? id) : null;
   const doneBy = completion ? memberById.get(completion.doneBy)?.name : undefined;
 
   const toggle = async () => {
@@ -77,11 +75,7 @@ export function TaskCard({ period, task, assignment }: Props) {
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           {statusBadge}
-          {assignment?.reassigned && (
-            <Badge tone="warn">
-              übernommen wegen Abwesenheit{absentNames.length ? ` von ${absentNames.join(' und ')}` : ''}
-            </Badge>
-          )}
+          {badgeText && <Badge tone="warn">{badgeText}</Badge>}
         </div>
         <Button
           size="sm"

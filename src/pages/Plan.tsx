@@ -1,7 +1,7 @@
 import { Badge, Card, MemberDot, SectionTitle } from '../components/ui';
 import { useApp } from '../lib/AppContext';
 import { berlinDay, formatRange, periodTitle, windowFor, type Period } from '../lib/periods';
-import type { PeriodSchedule } from '../lib/schedule';
+import { reassignBadge, type PeriodSchedule } from '../lib/schedule';
 
 export function Plan() {
   const { schedule, today, taskById, memberById, onlyMine, currentMember } = useApp();
@@ -24,7 +24,7 @@ export function Plan() {
           {rows.map((a) => {
             const t = taskById.get(a.taskId)!;
             const owner = a.memberId ? memberById.get(a.memberId) : undefined;
-            const absent = a.absentMemberIds.map((id) => memberById.get(id)?.name).filter(Boolean);
+            const badge = reassignBadge(a, (id) => memberById.get(id)?.name ?? id);
             return (
               <li key={a.taskId} className="flex items-center gap-3 py-2">
                 <span className="text-xl" aria-hidden="true">{t.icon}</span>
@@ -33,11 +33,9 @@ export function Plan() {
                   <div className="text-xs text-[var(--muted)]">
                     {formatRange(windowFor(period, t.window))}
                   </div>
-                  {a.reassigned && (
+                  {badge && (
                     <div className="mt-1">
-                      <Badge tone="warn">
-                        übernommen wegen Abwesenheit{absent.length ? ` von ${absent.join(' und ')}` : ''}
-                      </Badge>
+                      <Badge tone="warn">{badge}</Badge>
                     </div>
                   )}
                 </div>
