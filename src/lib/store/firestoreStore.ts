@@ -17,7 +17,7 @@ import {
 import { firebaseConfig } from '../../firebaseConfig';
 import { sha256Hex } from '../crypto';
 import { SEED_PIN, seedHousehold, seedTasks } from '../seed';
-import type { Absence, Completion, Household, PushSubscriptionRecord, Snapshot, Task } from '../types';
+import type { Absence, Completion, Household, Override, PushSubscriptionRecord, Snapshot, Task } from '../types';
 import type { Store, Unsubscribe } from './types';
 
 /** Produktiv: Firestore mit Live-Sync. Collections siehe PLAN.md Abschnitt 2. */
@@ -65,6 +65,9 @@ export async function createFirestoreStore(): Promise<Store> {
     subscribeSnapshots(cb) {
       return listen(collection(db, 'snapshots'), (s) => s.docs.map((d) => d.data() as Snapshot), cb);
     },
+    subscribeOverrides(cb) {
+      return listen(collection(db, 'overrides'), (s) => s.docs.map((d) => d.data() as Override), cb);
+    },
 
     async updateHousehold(patch) {
       await updateDoc(hhRef, patch as DocumentData);
@@ -86,6 +89,14 @@ export async function createFirestoreStore(): Promise<Store> {
     },
     async saveSnapshot(snapshot) {
       await setDoc(doc(db, 'snapshots', snapshot.periodKey), snapshot);
+    },
+    async saveOverride(override) {
+      // Firestore lehnt undefined-Felder ab
+      const clean = Object.fromEntries(Object.entries(override).filter(([, v]) => v !== undefined));
+      await setDoc(doc(db, 'overrides', override.id), clean);
+    },
+    async deleteOverride(id) {
+      await deleteDoc(doc(db, 'overrides', id));
     },
     async savePushSubscription(record: PushSubscriptionRecord) {
       await setDoc(doc(db, 'pushSubscriptions', record.id), {

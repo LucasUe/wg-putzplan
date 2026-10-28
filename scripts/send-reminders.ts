@@ -10,7 +10,7 @@ import webpush from 'web-push';
 import { firebaseConfig } from '../src/firebaseConfig';
 import { VAPID_PUBLIC_KEY } from '../src/config';
 import { planReminders, type ReminderMessage } from './reminder-logic';
-import type { Absence, Completion, Household, Snapshot, Task } from '../src/lib/types';
+import type { Absence, Completion, Household, Override, Snapshot, Task } from '../src/lib/types';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -63,6 +63,7 @@ async function main(): Promise<void> {
   const absences = await all<Absence>('absences');
   const snapshots = await all<Snapshot>('snapshots');
   const completions = await all<Completion>('completions');
+  const overrides = await all<Override>('overrides');
   const sentDocs = await getDocs(collection(db, 'sentReminders'));
   const sentKeys = new Set<string>();
   const lastAssignments: Record<string, Record<string, string | null>> = {};
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
     startDate: hh.startDate,
     snapshots,
     completions,
+    overrides,
     sentKeys,
     lastAssignments,
   });

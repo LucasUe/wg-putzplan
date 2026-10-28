@@ -24,6 +24,9 @@ service cloud.firestore {
     match /pushSubscriptions/{doc} {
       allow read, write: if true;
     }
+    match /overrides/{doc} {
+      allow read, write: if true;
+    }
     match /sentReminders/{doc} {
       allow read, write: if true;
     }

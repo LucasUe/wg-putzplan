@@ -1,17 +1,20 @@
 import { sha256Hex } from '../crypto';
 import { SEED_PIN, seedHousehold, seedTasks } from '../seed';
-import type { Absence, Completion, Household, PushSubscriptionRecord, Snapshot, Task } from '../types';
+import type { Absence, Completion, Household, Override, PushSubscriptionRecord, Snapshot, Task } from '../types';
 import type { Store, Unsubscribe } from './types';
 
 /** Demo-Modus: alles im localStorage dieses Browsers. */
 
 const KEY = 'wg-putzplan:demo:v1';
+const EMPTY_OVERRIDES: Override[] = [];
 
 interface LocalData {
   household: Household;
   tasks: Task[];
   absences: Absence[];
   completions: Completion[];
+  /** fehlt in älteren Demo-Daten */
+  overrides?: Override[];
   snapshots: Snapshot[];
   pushSubscriptions: PushSubscriptionRecord[];
 }
@@ -88,6 +91,7 @@ export async function createLocalStore(): Promise<Store> {
     subscribeAbsences: (cb) => subscribe(() => data.absences, cb),
     subscribeCompletions: (cb) => subscribe(() => data.completions, cb),
     subscribeSnapshots: (cb) => subscribe(() => data.snapshots, cb),
+    subscribeOverrides: (cb) => subscribe(() => data.overrides ?? EMPTY_OVERRIDES, cb),
 
     async updateHousehold(patch) {
       commit({ ...data, household: { ...data.household, ...patch } });
@@ -121,6 +125,13 @@ export async function createLocalStore(): Promise<Store> {
         ? data.snapshots
         : [...data.snapshots, snapshot];
       commit({ ...data, snapshots });
+    },
+    async saveOverride(override) {
+      const overrides = [...(data.overrides ?? []).filter((o) => o.id !== override.id), override];
+      commit({ ...data, overrides });
+    },
+    async deleteOverride(id) {
+      commit({ ...data, overrides: (data.overrides ?? []).filter((o) => o.id !== id) });
     },
     async savePushSubscription(record) {
       const pushSubscriptions = [...data.pushSubscriptions.filter((r) => r.id !== record.id), record];

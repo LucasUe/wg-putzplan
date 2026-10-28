@@ -57,6 +57,28 @@ export interface SnapshotItem {
   takeover?: boolean;
   /** Tauschpartner, falls die Aufgabe wegen Abwesenheit getauscht wurde */
   swapWith?: string | null;
+  /** Wem die Übernahme gutgeschrieben wird (falls abweichend von memberId, z. B. nach Abgabe) */
+  takeoverBy?: string | null;
+  /** Manuell abgegeben oder getauscht */
+  override?: 'handover' | 'swap';
+  /** Vorherige Person bei manueller Abgabe/Tausch */
+  overrideFrom?: string;
+}
+
+/** Manuelle Abgabe bzw. Tausch einer Aufgabe in einer Periode. Dokument-ID: `${periodKey}_${taskId}` */
+export interface Override {
+  id: string;
+  periodKey: string;
+  cadence: 'weekly' | 'monthly';
+  taskId: string;
+  /** Neue zuständige Person */
+  memberId: string;
+  kind: 'handover' | 'swap';
+  /** Bei Tausch: die andere getauschte Aufgabe */
+  partnerTaskId?: string;
+  createdBy: string;
+  /** ISO-Zeitstempel */
+  createdAt: string;
 }
 
 export interface Snapshot {

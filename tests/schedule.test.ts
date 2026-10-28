@@ -9,7 +9,7 @@ import {
   type Schedule,
   type ScheduleInput,
 } from '../src/lib/schedule';
-import type { Absence, Member, Task } from '../src/lib/types';
+import type { Absence, Member, Override, Task } from '../src/lib/types';
 
 const MEMBERS: Member[] = [
   { id: 'lucas', name: 'Lucas', color: '#3B82F6' },
@@ -316,10 +316,91 @@ describe('Snapshots und Pins', () => {
   });
 });
 
+describe('Manuelles Abgeben und Tauschen (Overrides)', () => {
+  const NOW = new Date('2026-10-27T12:00:00Z'); // KW44 läuft
+  const UNTIL = new Date('2026-11-15T12:00:00Z');
+  const ov = (taskId: string, memberId: string, kind: 'handover' | 'swap', createdBy: string, partnerTaskId?: string, periodKey = '2026-W44'): Override => ({
+    id: `${periodKey}_${taskId}`, periodKey, cadence: 'weekly', taskId, memberId, kind, createdBy, createdAt: '2026-10-27T10:00:00Z',
+    ...(partnerTaskId ? { partnerTaskId } : {}),
+  });
+  const base = computeSchedule(input({ now: NOW, until: UNTIL }));
+  const w44 = holders(base, 'weekly', '2026-W44');
+  const lucasTask = Object.keys(w44).find((k) => w44[k] === 'lucas')!;
+  const paulTask = Object.keys(w44).find((k) => w44[k] === 'paul')!;
+
+  it('handover: Aufgabe geht an Paul, Rest bleibt, Zähler unverändert, Folgewoche ideal', () => {
+    const s = computeSchedule(input({ now: NOW, until: UNTIL, overrides: [ov(lucasTask, 'paul', 'handover', 'lucas')] }));
+    const w = holders(s, 'weekly', '2026-W44');
+    expect(w[lucasTask]).toBe('paul');
+    for (const k of Object.keys(w)) if (k !== lucasTask) expect(w[k]).toBe(w44[k]);
+    expect(Object.values(s.weekly[0].takeovers).every((v) => v === 0)).toBe(true);
+    expect(holders(s, 'weekly', '2026-W45')).toEqual(holders(base, 'weekly', '2026-W45'));
+    const a = s.weekly[0].assignments.find((x) => x.taskId === lucasTask)!;
+    expect(a.overrideKind).toBe('handover');
+    expect(reassignBadge(a, nameOf)).toBe('von Lucas abgegeben');
+  });
+
+  it('swap: beide Aufgaben getauscht, jeder weiter genau eine Aufgabe', () => {
+    const s = computeSchedule(
+      input({ now: NOW, until: UNTIL, overrides: [ov(lucasTask, 'paul', 'swap', 'lucas', paulTask), ov(paulTask, 'lucas', 'swap', 'lucas', lucasTask)] }),
+    );
+    const w = holders(s, 'weekly', '2026-W44');
+    expect(w[lucasTask]).toBe('paul');
+    expect(w[paulTask]).toBe('lucas');
+    expect(countBy(Object.values(w))).toEqual({ lucas: 1, marleen: 1, paul: 1 });
+    const a = s.weekly[0].assignments.find((x) => x.taskId === paulTask)!;
+    expect(reassignBadge(a, nameOf)).toBe('getauscht mit Paul');
+    expect(reassignBadge(s.weekly[0].assignments.find((x) => x.taskId === lucasTask)!, nameOf)).toBe('getauscht mit Lucas');
+  });
+
+  it('Override auf eine abwesende Person wird ignoriert', () => {
+    const s = computeSchedule(
+      input({ now: NOW, until: UNTIL, absences: [abs('p', 'paul', '2026-10-26', '2026-11-01')], overrides: [ov(lucasTask, 'paul', 'handover', 'lucas')] }),
+    );
+    expect(holders(s, 'weekly', '2026-W44')[lucasTask]).not.toBe('paul');
+  });
+
+  it('Pin schlägt Override', () => {
+    const s = computeSchedule(
+      input({ now: NOW, until: UNTIL, overrides: [ov(lucasTask, 'paul', 'handover', 'lucas')], pins: { '2026-W44': { [lucasTask]: 'lucas' } } }),
+    );
+    const a = s.weekly[0].assignments.find((x) => x.taskId === lucasTask)!;
+    expect(a.memberId).toBe('lucas');
+    expect(a.overrideKind).toBeNull();
+  });
+
+  it('eingefrorene Periode ignoriert Override, Snapshot behält Abgabe-Badge', () => {
+    const later = new Date('2026-11-03T12:00:00Z');
+    const withOv = computeSchedule(input({ now: NOW, until: UNTIL, overrides: [ov(lucasTask, 'paul', 'handover', 'lucas')] }));
+    const snap = buildSnapshot(withOv.weekly[0], '2026-11-02T00:00:00Z');
+    expect(snap.items[lucasTask].override).toBe('handover');
+    // Snapshot ohne Override, aber Override-Dokument vorhanden: Override wird ignoriert
+    const plainSnap = buildSnapshot(base.weekly[0], '2026-11-02T00:00:00Z');
+    const frozen = computeSchedule(input({ now: later, until: UNTIL, snapshots: [plainSnap], overrides: [ov(lucasTask, 'paul', 'handover', 'lucas')] }));
+    expect(holders(frozen, 'weekly', '2026-W44')[lucasTask]).toBe('lucas');
+    const frozenOv = computeSchedule(input({ now: later, until: UNTIL, snapshots: [snap] }));
+    const a = frozenOv.weekly[0].assignments.find((x) => x.taskId === lucasTask)!;
+    expect(a.memberId).toBe('paul');
+    expect(reassignBadge(a, nameOf)).toBe('von Lucas abgegeben');
+  });
+
+  it('Abgabe einer Übernahme: Zähler bleibt bei der übernehmenden Person', () => {
+    const absences = [abs('l', 'lucas', '2026-10-26', '2026-11-01')];
+    const noOv = computeSchedule(input({ now: NOW, until: UNTIL, absences }));
+    const t = noOv.weekly[0].assignments.find((x) => x.takenFor === 'lucas')!;
+    const taker = t.memberId!;
+    const other = taker === 'paul' ? 'marleen' : 'paul';
+    const s = computeSchedule(input({ now: NOW, until: UNTIL, absences, overrides: [ov(t.taskId, other, 'handover', taker)] }));
+    expect(s.weekly[0].takeovers).toEqual(noOv.weekly[0].takeovers);
+    expect(holders(s, 'weekly', '2026-W44')[t.taskId]).toBe(other);
+  });
+});
+
 describe('Umverteilungs-Badge', () => {
   const base = {
     taskId: 't', name: 't', weight: 1, memberId: 'marleen', idealMemberId: 'lucas', eligible: ['marleen', 'paul'],
     frozen: false, takenFor: null as string | null, swappedWith: null as string | null, swapBecause: null as string | null,
+    takeoverBy: null as string | null, overrideKind: null as 'handover' | 'swap' | null, overrideFrom: null as string | null,
   };
   it('Übernahme', () => {
     expect(reassignBadge({ ...base, reassigned: true, takenFor: 'lucas' }, nameOf)).toBe('übernommen für Lucas (abwesend)');

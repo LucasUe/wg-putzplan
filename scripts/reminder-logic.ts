@@ -12,7 +12,7 @@ import {
   type Period,
 } from '../src/lib/periods';
 import { buildSnapshot, computeSchedule, type PeriodSchedule, type Schedule } from '../src/lib/schedule';
-import type { Absence, Completion, Member, Snapshot, Task } from '../src/lib/types';
+import type { Absence, Completion, Member, Override, Snapshot, Task } from '../src/lib/types';
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
@@ -43,6 +43,8 @@ export interface ReminderInput {
   startDate: string;
   snapshots: Snapshot[];
   completions: Completion[];
+  /** Manuelle Abgaben/Tausche */
+  overrides?: Override[];
   /** Bereits versendete Dedup-Schlüssel */
   sentKeys: Set<string>;
   /** Zuletzt gemeldete Zuteilung je Periode: periodKey -> taskId -> memberId */
@@ -114,6 +116,7 @@ export function planReminders(input: ReminderInput): ReminderResult {
     until: new Date(now.getTime() + HORIZON_DAYS * DAY_MS),
     now,
     pins,
+    overrides: input.overrides ?? [],
   });
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));

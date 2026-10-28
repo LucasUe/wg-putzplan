@@ -1,4 +1,4 @@
-import type { Absence, Completion, Household, PushSubscriptionRecord, Snapshot, Task } from '../types';
+import type { Absence, Completion, Household, Override, PushSubscriptionRecord, Snapshot, Task } from '../types';
 
 export type Unsubscribe = () => void;
 
@@ -13,6 +13,7 @@ export interface Store {
   subscribeAbsences(cb: (absences: Absence[]) => void): Unsubscribe;
   subscribeCompletions(cb: (completions: Completion[]) => void): Unsubscribe;
   subscribeSnapshots(cb: (snapshots: Snapshot[]) => void): Unsubscribe;
+  subscribeOverrides(cb: (overrides: Override[]) => void): Unsubscribe;
 
   updateHousehold(patch: Partial<Household>): Promise<void>;
   saveTask(task: Task): Promise<void>;
@@ -21,5 +22,7 @@ export interface Store {
   saveCompletion(completion: Completion): Promise<void>;
   deleteCompletion(id: string): Promise<void>;
   saveSnapshot(snapshot: Snapshot): Promise<void>;
+  saveOverride(override: Override): Promise<void>;
+  deleteOverride(id: string): Promise<void>;
   savePushSubscription(record: PushSubscriptionRecord): Promise<void>;
 }

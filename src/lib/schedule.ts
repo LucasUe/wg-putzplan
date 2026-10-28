@@ -11,7 +11,7 @@ import {
   type DayRange,
   type Period,
 } from './periods';
-import type { Absence, Member, Snapshot, Task } from './types';
+import type { Absence, Member, Override, Snapshot, Task } from './types';
 
 /**
  * Verteilungslogik "Rotation + Übernahmen" (reine Funktionen, keine Firebase-Abhängigkeit).
@@ -44,6 +44,12 @@ export interface TaskAssignment {
   swappedWith: string | null;
   /** Bei Tausch: die abwesende Person, wegen der getauscht wurde */
   swapBecause: string | null;
+  /** Wem die Übernahme im Zähler gutgeschrieben ist (kann nach einer Abgabe von memberId abweichen) */
+  takeoverBy: string | null;
+  /** Manuell abgegeben oder getauscht */
+  overrideKind: 'handover' | 'swap' | null;
+  /** Bei manueller Abgabe/Tausch: die vorherige Person */
+  overrideFrom: string | null;
   /** true, wenn aus einem eingefrorenen Snapshot übernommen */
   frozen: boolean;
 }
@@ -73,6 +79,8 @@ export interface ScheduleInput {
   now: Date;
   /** Festgelegte Zuteilungen: periodKey -> taskId -> memberId (z. B. bereits abgehakt) */
   pins?: Record<string, Record<string, string>>;
+  /** Manuelle Abgaben/Tausche (gelten nur für nicht eingefrorene Perioden) */
+  overrides?: Override[];
 }
 
 /**
@@ -108,6 +116,8 @@ function sortTasks(tasks: Task[]): Task[] {
 
 /** Erklärtext für eine umverteilte Aufgabe, oder null (kein Badge). */
 export function reassignBadge(a: TaskAssignment, nameOf: (id: string) => string): string | null {
+  if (a.overrideKind === 'handover' && a.overrideFrom) return `von ${nameOf(a.overrideFrom)} abgegeben`;
+  if (a.overrideKind === 'swap' && a.overrideFrom) return `getauscht mit ${nameOf(a.overrideFrom)}`;
   if (!a.reassigned) return null;
   if (a.takenFor) return `übernommen für ${nameOf(a.takenFor)} (abwesend)`;
   if (a.swappedWith && a.swapBecause) {
@@ -211,6 +221,7 @@ function assignLive(
   absences: Absence[],
   ideal: Map<string, string | null>,
   pins: Record<string, string>,
+  overrides: Record<string, Override>,
   state: CadenceState,
 ): PeriodSchedule {
   const applicable = tasks.filter((t) => appliesTo(t, period));
@@ -286,7 +297,24 @@ function assignLive(
     counter[best] = (counter[best] ?? 0) + t.weight;
   }
 
+  // Stand des Algorithmus merken: Übernahmen werden danach nicht mehr verschoben.
+  const algoHolder = new Map(holder);
+  const algoSwap = new Map(swapPartner);
+
+  // Manuelle Abgaben/Tausche, nur wenn die Zielperson für das Fenster verfügbar ist
+  const overrideInfo = new Map<string, { kind: 'handover' | 'swap'; from: string | null }>();
+  for (const t of applicable) {
+    const o = overrides[t.id];
+    if (!o || !memberIds.has(o.memberId) || !elig(t.id).includes(o.memberId)) continue;
+    const from = holder.get(t.id) ?? null;
+    if (from === o.memberId) continue;
+    holder.set(t.id, o.memberId);
+    swapPartner.delete(t.id);
+    overrideInfo.set(t.id, { kind: o.kind, from });
+  }
+
   // f. Pins (abgehakte Aufgaben) überschreiben die Zuteilung
+  const pinnedTasks = new Set<string>();
   for (const t of applicable) {
     const pinned = pins[t.id];
     if (pinned === undefined || !memberIds.has(pinned) || holder.get(t.id) === pinned) continue;
@@ -299,6 +327,8 @@ function assignLive(
       swapPartner.delete(t.id);
     }
     holder.set(t.id, pinned);
+    overrideInfo.delete(t.id);
+    pinnedTasks.add(t.id);
   }
 
   // Ergebnis und endgültige Übernahmen dieser Periode
@@ -309,9 +339,15 @@ function assignLive(
     const idealMemberId = idealOf(t.id);
     const eligible = elig(t.id);
     const partner = swapPartner.get(t.id) ?? null;
-    const isTakeover =
-      memberId !== null && partner === null && idealMemberId !== null && memberId !== idealMemberId && !eligible.includes(idealMemberId);
-    if (isTakeover) takeovers[memberId] = (takeovers[memberId] ?? 0) + t.weight;
+    // Übernahme: bei Pin die abhakende Person, sonst die Person laut Algorithmus (Abgaben ändern nichts)
+    const credited = pinnedTasks.has(t.id) ? memberId : algoHolder.get(t.id) ?? null;
+    const creditedSwap = pinnedTasks.has(t.id) ? partner : algoSwap.get(t.id) ?? null;
+    const idealAbsent = idealMemberId !== null && !eligible.includes(idealMemberId);
+    const takeoverBy =
+      credited !== null && creditedSwap === null && idealAbsent && credited !== idealMemberId ? credited : null;
+    if (takeoverBy) takeovers[takeoverBy] = (takeovers[takeoverBy] ?? 0) + t.weight;
+    const isTakeover = takeoverBy !== null && takeoverBy === memberId;
+    const ov = overrideInfo.get(t.id);
     if (memberId !== null) state.lastDone.set(`${t.id}|${memberId}`, index);
     return {
       taskId: t.id,
@@ -324,6 +360,9 @@ function assignLive(
       takenFor: isTakeover ? idealMemberId : null,
       swappedWith: partner,
       swapBecause: partner ? swapReason(memberId, idealMemberId, eligible) : null,
+      takeoverBy,
+      overrideKind: ov?.kind ?? null,
+      overrideFrom: ov?.from ?? null,
       frozen: false,
     };
   });
@@ -358,7 +397,8 @@ function fromSnapshot(
         idealMemberId !== null &&
         item.memberId !== idealMemberId &&
         !item.eligible.includes(idealMemberId));
-    if (isTakeover && item.memberId) takeovers[item.memberId] = (takeovers[item.memberId] ?? 0) + item.weight;
+    const takeoverBy = isTakeover ? item.takeoverBy ?? item.memberId : null;
+    if (takeoverBy) takeovers[takeoverBy] = (takeovers[takeoverBy] ?? 0) + item.weight;
     if (item.memberId) state.lastDone.set(`${taskId}|${item.memberId}`, index);
     return {
       taskId,
@@ -368,9 +408,12 @@ function fromSnapshot(
       idealMemberId,
       eligible: item.eligible,
       reassigned: item.memberId !== null && idealMemberId !== null && item.memberId !== idealMemberId,
-      takenFor: isTakeover ? idealMemberId : null,
+      takenFor: isTakeover && takeoverBy === item.memberId ? idealMemberId : null,
       swappedWith: partner,
       swapBecause: partner ? swapReason(item.memberId, idealMemberId, item.eligible) : null,
+      takeoverBy,
+      overrideKind: item.override ?? null,
+      overrideFrom: item.overrideFrom ?? null,
       frozen: true,
     };
   });
@@ -385,6 +428,13 @@ function runCadence(cadence: Cadence, input: ScheduleInput, tasks: Task[]): Peri
   const snapByKey = new Map(input.snapshots.filter((s) => s.cadence === cadence).map((s) => [s.periodKey, s]));
   const today = berlinDay(input.now);
   const state: CadenceState = { counter: {}, lastDone: new Map() };
+  const overridesByPeriod = new Map<string, Record<string, Override>>();
+  for (const o of input.overrides ?? []) {
+    if (o.cadence !== cadence) continue;
+    const m = overridesByPeriod.get(o.periodKey) ?? {};
+    m[o.taskId] = o;
+    overridesByPeriod.set(o.periodKey, m);
+  }
   for (const m of input.members) state.counter[m.id] = 0;
 
   return periods.map((period, index) => {
@@ -393,7 +443,17 @@ function runCadence(cadence: Cadence, input: ScheduleInput, tasks: Task[]): Peri
     const snap = period.endDay < today ? snapByKey.get(period.key) : undefined;
     return snap
       ? fromSnapshot(period, index, snap, tasks, input.members, idealP, state)
-      : assignLive(period, index, tasks, input.members, input.absences, idealP, input.pins?.[period.key] ?? {}, state);
+      : assignLive(
+          period,
+          index,
+          tasks,
+          input.members,
+          input.absences,
+          idealP,
+          input.pins?.[period.key] ?? {},
+          overridesByPeriod.get(period.key) ?? {},
+          state,
+        );
   });
 }
 
@@ -417,8 +477,12 @@ export function buildSnapshot(ps: PeriodSchedule, savedAt: string): Snapshot {
       memberId: a.memberId,
       weight: a.weight,
       eligible: [...a.eligible],
-      takeover: a.takenFor !== null,
+      takeover: a.takeoverBy !== null,
       swapWith: a.swappedWith,
+      // Firestore lehnt undefined ab: optionale Felder nur setzen, wenn vorhanden
+      ...(a.takeoverBy !== null && a.takeoverBy !== a.memberId ? { takeoverBy: a.takeoverBy } : {}),
+      ...(a.overrideKind ? { override: a.overrideKind } : {}),
+      ...(a.overrideFrom ? { overrideFrom: a.overrideFrom } : {}),
     };
   }
   return { periodKey: ps.period.key, cadence: ps.period.cadence, items, savedAt };
