@@ -79,19 +79,67 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     const data = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
     expect(data.snapshots.map((s: { periodKey: string }) => s.periodKey)).not.toContain('2026-W44');
 
-    // Abhaken
-    const check = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Abhaken'))!;
-    await act(async () => check.click());
-    await flush(10);
-    expect(container.textContent).toContain('Rückgängig');
-    const after = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
-    expect(after.completions.length).toBe(1);
+    const cards = () => [...container.querySelectorAll('article')];
+    const owner = (card: Element) => card.querySelector('.font-medium')?.textContent ?? '';
+    const buttonIn = (card: Element, text: string) => [...card.querySelectorAll('button')].find((b) => b.textContent?.includes(text));
+    const cardFor = (name: string) => cards().find((c) => c.querySelector('h3')?.textContent === name)!;
 
-    // Rückfrage-Dialog aus einer Benachrichtigung (#/overview?confirm=<periodKey>|<taskId>)
-    const week = after.completions[0].periodKey as string;
-    const openTask = ['saugen', 'kueche', 'muell'].find((t) => !after.completions.some((c: { taskId: string }) => c.taskId === t))!;
+    // Nur eigene Karten haben einen Abhaken-Button, fremde nicht
+    expect(cards().length).toBeGreaterThan(2);
+    for (const c of cards()) {
+      if (owner(c) === 'Lucas') expect(buttonIn(c, 'Abhaken')).toBeDefined();
+      else expect(buttonIn(c, 'Abhaken')).toBeUndefined();
+    }
+    const ownCards = cards().filter((c) => owner(c) === 'Lucas');
+    expect(ownCards.length).toBeGreaterThanOrEqual(2);
+    const ownNames = ownCards.map((c) => c.querySelector('h3')!.textContent!);
+    const foreignName = cards().find((c) => owner(c) !== 'Lucas')!.querySelector('h3')!.textContent!;
+
+    // Abgeben: erste eigene Aufgabe an Paul, nur abgeben
+    const giveName = ownNames[0];
+    await act(async () => buttonIn(cardFor(giveName), 'Abgeben')!.click());
+    await flush(5);
+    expect(container.textContent).toContain('An wen?');
+    const toPaul = [...container.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.includes('Paul'))!;
+    await act(async () => (toPaul as HTMLButtonElement).click());
+    await flush(5);
+    expect(container.textContent).toContain('Sollen die anderen Aufgaben angepasst werden?');
+    expect(container.textContent).toContain('Paul hat dann eine Aufgabe mehr. Das wird nicht ausgeglichen.');
+    const onlyGive = [...container.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.includes('Nein, nur abgeben'))!;
+    await act(async () => (onlyGive as HTMLButtonElement).click());
+    await flush(10);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    const given = cardFor(giveName);
+    expect(owner(given)).toBe('Paul');
+    expect(given.textContent).toContain('von Lucas abgegeben');
+    expect(buttonIn(given, 'Abhaken')).toBeUndefined();
+    const stored = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
+    expect(stored.overrides).toHaveLength(1);
+    expect(stored.overrides[0]).toMatchObject({ memberId: 'paul', kind: 'handover', createdBy: 'lucas' });
+
+    // Rückfrage-Dialog: bei fremder Aufgabe nicht, bei eigener schon
+    const taskIdOf = (name: string) => (stored.tasks as { id: string; name: string }[]).find((t) => t.name === name)!.id;
+    const periodOfCard = (name: string) => {
+      const section = cardFor(name).closest('section')!;
+      return section.textContent!.includes('Dieser Monat') ? 'monthly' : 'weekly';
+    };
+    const ownMonthly = ownNames.find((n) => periodOfCard(n) === 'monthly')!;
+    expect(ownMonthly).toBeDefined();
+    const monthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date()).slice(0, 7);
+    const foreignMonthly = cards()
+      .filter((c) => owner(c) !== 'Lucas' && periodOfCard(c.querySelector('h3')!.textContent!) === 'monthly')
+      .map((c) => c.querySelector('h3')!.textContent!)[0] ?? foreignName;
+
     await act(async () => {
-      window.location.hash = `#/overview?confirm=${encodeURIComponent(`${week}|${openTask}`)}`;
+      window.location.hash = `#/overview?confirm=${encodeURIComponent(`${monthKey}|${taskIdOf(foreignMonthly)}`)}`;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await flush(10);
+    expect(container.textContent).not.toContain('Ja, erledigt');
+    expect(window.location.hash).not.toContain('confirm');
+
+    await act(async () => {
+      window.location.hash = `#/overview?confirm=${encodeURIComponent(`${monthKey}|${taskIdOf(ownMonthly)}`)}`;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
     await flush(10);
@@ -100,9 +148,10 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     await act(async () => yes.click());
     await flush(10);
     const final = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
-    expect(final.completions.length).toBe(2);
+    expect(final.completions).toHaveLength(1);
+    expect(final.completions[0]).toMatchObject({ taskId: taskIdOf(ownMonthly), doneBy: 'lucas' });
     expect(window.location.hash).not.toContain('confirm');
-    expect(container.textContent).not.toContain('Ja, erledigt');
+    expect(buttonIn(cardFor(ownMonthly), 'Rückgängig')).toBeDefined();
 
     await act(async () => root.unmount());
   });

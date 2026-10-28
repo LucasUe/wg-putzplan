@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HandoverDialog } from './HandoverDialog';
 import { Badge, Button, MemberDot } from './ui';
 import { completionId, taskStatus, useApp } from '../lib/AppContext';
 import { formatCountdown, formatRange, rangeEnd, windowFor, type Period } from '../lib/periods';
@@ -12,8 +13,9 @@ interface Props {
 }
 
 export function TaskCard({ period, task, assignment }: Props) {
-  const { now, memberById, completionById, toggleCompletion, currentMember } = useApp();
+  const { now, today, memberById, completionById, toggleCompletion, currentMember, canToggle } = useApp();
   const [busy, setBusy] = useState(false);
+  const [handover, setHandover] = useState(false);
 
   const range = windowFor(period, task.window);
   const end = rangeEnd(range);
@@ -44,7 +46,9 @@ export function TaskCard({ period, task, assignment }: Props) {
     );
 
   const isOwnTask = owner !== undefined && owner.id === currentMember?.id;
-  const buttonVariant = done ? 'secondary' : isOwnTask || !owner ? 'primary' : 'outline';
+  // Abhaken nur bei eigenen Aufgaben, Rückgängig nur für die Person, die abgehakt hat
+  const mayToggle = canToggle(period.key, task.id);
+  const mayHandOver = isOwnTask && !done && period.endDay >= today;
 
   return (
     <article
@@ -77,17 +81,20 @@ export function TaskCard({ period, task, assignment }: Props) {
           {statusBadge}
           {badgeText && <Badge tone="warn">{badgeText}</Badge>}
         </div>
-        <Button
-          size="sm"
-          variant={buttonVariant}
-          disabled={busy || !currentMember}
-          onClick={toggle}
-          aria-pressed={done}
-          className="shrink-0"
-        >
-          {done ? 'Rückgängig' : 'Abhaken ✓'}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {mayHandOver && (
+            <Button size="sm" variant="ghost" onClick={() => setHandover(true)}>
+              Abgeben
+            </Button>
+          )}
+          {mayToggle && (
+            <Button size="sm" variant={done ? 'secondary' : 'primary'} disabled={busy} onClick={toggle} aria-pressed={done}>
+              {done ? 'Rückgängig' : 'Abhaken ✓'}
+            </Button>
+          )}
+        </div>
       </div>
+      {handover && <HandoverDialog periodKey={period.key} taskId={task.id} onClose={() => setHandover(false)} />}
     </article>
   );
 }

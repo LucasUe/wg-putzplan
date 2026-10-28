@@ -10,7 +10,7 @@ import { completionId, useApp } from '../lib/AppContext';
 export function ConfirmDialog() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { taskById, completionById, toggleCompletion, schedule } = useApp();
+  const { taskById, completionById, toggleCompletion, findAssignment, currentMember } = useApp();
   const [busy, setBusy] = useState(false);
 
   const raw = new URLSearchParams(location.search).get('confirm');
@@ -18,9 +18,8 @@ export function ConfirmDialog() {
   const close = useCallback(() => navigate(location.pathname, { replace: true }), [navigate, location.pathname]);
 
   const task = taskById.get(taskId);
-  const known = [...schedule.weekly, ...schedule.monthly].some(
-    (p) => p.period.key === periodKey && p.assignments.some((a) => a.taskId === taskId),
-  );
+  // Nur eigene Aufgaben dürfen abgehakt werden
+  const known = Boolean(currentMember) && findAssignment(periodKey, taskId)?.a.memberId === currentMember?.id;
   const open = Boolean(raw && task && known && !completionById.has(completionId(periodKey, taskId)));
 
   // Schon erledigt oder unbekannt: Parameter still entfernen
