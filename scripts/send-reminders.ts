@@ -9,13 +9,32 @@ import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, type
 import webpush from 'web-push';
 import { firebaseConfig } from '../src/firebaseConfig';
 import { VAPID_PUBLIC_KEY } from '../src/config';
-import { planReminders } from './reminder-logic';
+import { planReminders, type ReminderMessage } from './reminder-logic';
 import type { Absence, Completion, Household, Snapshot, Task } from '../src/lib/types';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const atArg = args.find((a) => a.startsWith('--at='));
 const now = atArg ? new Date(atArg.slice('--at='.length)) : new Date();
+
+/** Push-Payload: der Service Worker kann damit direkt per Firestore-REST abhaken. */
+function payloadFor(msg: ReminderMessage) {
+  return {
+    title: msg.title,
+    body: msg.body,
+    tag: msg.tag,
+    url: msg.url,
+    data: {
+      url: msg.url,
+      periodKey: msg.periodKey,
+      taskId: msg.taskId,
+      taskName: msg.taskName,
+      memberId: msg.memberId,
+      canComplete: msg.canComplete,
+      firestore: { projectId: firebaseConfig.projectId, apiKey: firebaseConfig.apiKey },
+    },
+  };
+}
 
 function env(name: string): string {
   const v = process.env[name];
@@ -83,7 +102,7 @@ async function main(): Promise<void> {
     if (dryRun) continue;
     for (const s of subs) {
       try {
-        await webpush.sendNotification(s.subscription, JSON.stringify({ title: msg.title, body: msg.body, url: msg.url, tag: msg.tag }));
+        await webpush.sendNotification(s.subscription, JSON.stringify(payloadFor(msg)));
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {

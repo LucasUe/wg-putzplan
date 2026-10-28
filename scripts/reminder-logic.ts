@@ -1,13 +1,14 @@
-import { formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import {
   addDays,
   berlinDay,
   formatDayRangeShort,
-  monthPeriod,
+  formatDayTime,
   periodAt,
+  rangeEnd,
   TZ,
-  weekdayIndex,
   windowFor,
+  type DayRange,
   type Period,
 } from '../src/lib/periods';
 import { buildSnapshot, computeSchedule, type PeriodSchedule, type Schedule } from '../src/lib/schedule';
@@ -15,7 +16,8 @@ import type { Absence, Completion, Member, Snapshot, Task } from '../src/lib/typ
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
- * Zeitzone Europe/Berlin. Der Cron läuft stündlich; gesendet wird, wenn die Berliner Stunde passt.
+ * Zeitzone Europe/Berlin. Ein Termin ist fällig, wenn er in (now − 3 h, now] liegt und
+ * sein Dedup-Schlüssel noch nicht versendet wurde. So schaden verspätete GitHub-Crons nicht.
  */
 
 export interface ReminderMessage {
@@ -26,6 +28,11 @@ export interface ReminderMessage {
   body: string;
   tag: string;
   url: string;
+  periodKey: string | null;
+  taskId: string | null;
+  taskName: string | null;
+  /** Darf direkt aus der Benachrichtigung abgehakt werden? */
+  canComplete: boolean;
 }
 
 export interface ReminderInput {
@@ -44,7 +51,7 @@ export interface ReminderInput {
 
 export interface ReminderResult {
   messages: ReminderMessage[];
-  /** Neue Snapshots für begonnene Perioden ohne Snapshot */
+  /** Neue Snapshots für beendete Perioden ohne Snapshot */
   newSnapshots: Snapshot[];
   /** Aktualisierte Zuteilungs-Stände (für "Neu zugeteilt") */
   assignmentUpdates: Record<string, Record<string, string | null>>;
@@ -53,21 +60,45 @@ export interface ReminderResult {
 
 const HORIZON_DAYS = 40;
 const DAY_MS = 86_400_000;
+/** Wie lange ein verpasster Termin noch nachgeholt wird */
+export const CATCH_UP_MS = 3 * 3_600_000;
 
-function berlinHour(now: Date): number {
-  return Number(formatInTimeZone(now, TZ, 'H'));
+interface Slot {
+  rule: string;
+  at: Date;
 }
 
-function lastDayOfMonth(day: string): string {
-  return monthPeriod(day).endDay;
+/** Zeitpunkt "Tag HH:00" in Berlin. */
+function atBerlin(day: string, hour: number): Date {
+  return fromZonedTime(`${day}T${String(hour).padStart(2, '0')}:00:00`, TZ);
+}
+
+/** Erinnerungstermine einer Aufgabe in ihrer Periode. */
+function slotsFor(task: Task, period: Period, range: DayRange): Slot[] {
+  if (task.window === 'weekend') {
+    // Freitag, Samstag, Sonntag 17:00 sowie Sonntag 20:00
+    return [
+      { rule: 'we', at: atBerlin(range.startDay, 17) },
+      { rule: 'we', at: atBerlin(addDays(range.startDay, 1), 17) },
+      { rule: 'we', at: atBerlin(addDays(range.startDay, 2), 17) },
+      { rule: 'we', at: atBerlin(addDays(range.startDay, 2), 20) },
+    ];
+  }
+  if (task.window === 'fullWeek') {
+    // Montag, Mittwoch, Freitag, Sonntag 17:00
+    return [0, 2, 4, 6].map((d) => ({ rule: 'wk', at: atBerlin(addDays(period.startDay, d), 17) }));
+  }
+  // Monat: 1. des Monats 10:00 und 3 Tage vor Monatsende 10:00
+  return [
+    { rule: 'mo-start', at: atBerlin(period.startDay, 10) },
+    { rule: 'mo-end', at: atBerlin(addDays(period.endDay, -2), 10) },
+  ];
 }
 
 export function planReminders(input: ReminderInput): ReminderResult {
   const { now, members, tasks } = input;
   const today = berlinDay(now);
-  const weekday = weekdayIndex(today);
-  const hour = berlinHour(now);
-  const dom = Number(today.slice(8, 10));
+  const hour = Number(formatInTimeZone(now, TZ, 'H'));
 
   // Erledigte Aufgaben: ID-Menge für "offen" und Pins (bleiben bei der abhakenden Person).
   const completionIds = new Set(input.completions.map((c) => c.id));
@@ -100,74 +131,41 @@ export function planReminders(input: ReminderInput): ReminderResult {
     messages.push(m);
   };
 
-  const mine = (ps: PeriodSchedule | undefined, memberId: string, filter?: (taskId: string) => boolean) =>
-    (ps?.assignments ?? []).filter(
-      (a) => a.memberId === memberId && taskById.has(a.taskId) && (!filter || filter(a.taskId)),
-    );
-  const isOpen = (period: Period, taskId: string) => !completionIds.has(`${period.key}_${taskId}`);
-  const names = (list: { taskId: string }[]) => list.map((a) => taskById.get(a.taskId)?.name ?? a.taskId).join(', ');
-  const weekendOnly = (taskId: string) => taskById.get(taskId)?.window === 'weekend';
-
-  for (const m of members) {
-    if (wk && weekday === 0 && hour === 9) {
-      const list = mine(wk, m.id);
-      if (list.length)
+  // Termin-Erinnerungen für die laufenden Perioden
+  for (const ps of [wk, mo]) {
+    if (!ps) continue;
+    for (const a of ps.assignments) {
+      const t = taskById.get(a.taskId);
+      if (!t || !a.memberId) continue;
+      if (completionIds.has(`${ps.period.key}_${t.id}`)) continue; // schon abgehakt
+      const range = windowFor(ps.period, t.window);
+      const end = rangeEnd(range);
+      const endText = formatDayTime(new Date(end.getTime() - 60_000));
+      for (const slot of slotsFor(t, ps.period, range)) {
+        const at = slot.at.getTime();
+        if (at > now.getTime() || at <= now.getTime() - CATCH_UP_MS) continue;
+        if (at >= end.getTime()) continue; // Fenster schon vorbei
+        let body: string;
+        if (slot.rule === 'wk') {
+          body = `${t.icon} Diese Woche bist du mit ${t.name} dran (${formatDayRangeShort(range)} 23:59)`;
+        } else if (slot.rule === 'mo-start') {
+          body = `${t.icon} Diesen Monat bist du mit ${t.name} dran – bis ${endText}`;
+        } else {
+          body = `${t.icon} ${t.name} ist noch offen – bis ${endText}`;
+        }
         push({
-          key: `wk-mon-${wk.period.key}-${m.id}`,
-          memberId: m.id,
-          title: 'Neue Woche',
-          body: `Diese Woche bist du dran mit: ${names(list)} (${formatDayRangeShort(wk.period)})`,
-          tag: 'wochenstart',
-          url: './',
+          key: `${slot.rule}-${ps.period.key}-${t.id}-${a.memberId}-${formatInTimeZone(slot.at, TZ, "yyyy-MM-dd'T'HH")}`,
+          memberId: a.memberId,
+          title: 'WG-Putzplan',
+          body,
+          tag: `${ps.period.key}-${t.id}`,
+          url: './#/overview',
+          periodKey: ps.period.key,
+          taskId: t.id,
+          taskName: t.name,
+          canComplete: t.window !== 'fullWeek',
         });
-    }
-    if (wk && weekday === 4 && hour === 10) {
-      const list = mine(wk, m.id, weekendOnly);
-      if (list.length)
-        push({
-          key: `wk-fri-${wk.period.key}-${m.id}`,
-          memberId: m.id,
-          title: 'Wochenende',
-          body: `Dieses Wochenende: ${names(list)}`,
-          tag: 'wochenende',
-          url: './',
-        });
-    }
-    if (wk && weekday === 6 && hour === 18) {
-      const list = mine(wk, m.id).filter((a) => isOpen(wk.period, a.taskId));
-      if (list.length)
-        push({
-          key: `wk-sun-${wk.period.key}-${m.id}`,
-          memberId: m.id,
-          title: 'Noch offen',
-          body: `Diese Woche noch offen: ${names(list)}`,
-          tag: 'wochen-offen',
-          url: './',
-        });
-    }
-    if (mo && dom === 1 && hour === 10) {
-      const list = mine(mo, m.id);
-      if (list.length)
-        push({
-          key: `mo-start-${mo.period.key}-${m.id}`,
-          memberId: m.id,
-          title: 'Neuer Monat',
-          body: `Diesen Monat bist du dran mit: ${names(list)}`,
-          tag: 'monatsstart',
-          url: './',
-        });
-    }
-    if (mo && dom === Number(lastDayOfMonth(today).slice(8, 10)) - 2 && hour === 10) {
-      const list = mine(mo, m.id).filter((a) => isOpen(mo.period, a.taskId));
-      if (list.length)
-        push({
-          key: `mo-end-${mo.period.key}-${m.id}`,
-          memberId: m.id,
-          title: 'Monatsende in 3 Tagen',
-          body: `Noch offen: ${names(list)}`,
-          tag: 'monatsende',
-          url: './',
-        });
+      }
     }
   }
 
@@ -195,7 +193,11 @@ export function planReminders(input: ReminderInput): ReminderResult {
           title: 'Neu zugeteilt',
           body: `Neu zugeteilt: ${t.name} (${range}), vorher ${memberName.get(prev[a.taskId] ?? '') ?? 'niemand'}`,
           tag: `neu-${ps.period.key}`,
-          url: './',
+          url: './#/overview',
+          periodKey: ps.period.key,
+          taskId: t.id,
+          taskName: t.name,
+          canComplete: false,
         });
       }
     }

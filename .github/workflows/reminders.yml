@@ -2,8 +2,8 @@ name: Putzplan-Erinnerungen
 
 on:
   schedule:
-    # stündlich zur Minute 5 (UTC); das Skript prüft die Berliner Uhrzeit
-    - cron: '5 * * * *'
+    # zweimal pro Stunde (UTC); fällig ist, was in den letzten 3 h (Berliner Zeit) anstand
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
 permissions:
