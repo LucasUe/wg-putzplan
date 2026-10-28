@@ -54,7 +54,7 @@ describe('Erinnerungen (Europe/Berlin)', () => {
       expect(wk[0].canComplete).toBe(false);
     }
     const mon = rule(planReminders(base('2026-11-02T16:00:00Z')), 'wk-')[0];
-    expect(mon.body).toBe('🗑️ Diese Woche bist du mit Müll runterbringen dran (Mo 02.11. – So 08.11. 23:59)');
+    expect(mon.body).toBe('🗑️ Müll runterbringen: Diese Woche bist du dran (Mo 02.11. – So 08.11. 23:59)');
     for (const at of ['2026-11-03T16:00:00Z', '2026-11-05T16:00:00Z', '2026-11-07T16:00:00Z']) {
       expect(rule(planReminders(base(at)), 'wk-'), at).toHaveLength(0);
     }

@@ -147,7 +147,7 @@ export function planReminders(input: ReminderInput): ReminderResult {
         if (at >= end.getTime()) continue; // Fenster schon vorbei
         let body: string;
         if (slot.rule === 'wk') {
-          body = `${t.icon} Diese Woche bist du mit ${t.name} dran (${formatDayRangeShort(range)} 23:59)`;
+          body = `${t.icon} ${t.name}: Diese Woche bist du dran (${formatDayRangeShort(range)} 23:59)`;
         } else if (slot.rule === 'mo-start') {
           body = `${t.icon} Diesen Monat bist du mit ${t.name} dran – bis ${endText}`;
         } else {
