@@ -1,3 +1,4 @@
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { TaskCard } from '../components/TaskCard';
 import { SectionTitle, Toggle } from '../components/ui';
 import { useApp } from '../lib/AppContext';
@@ -44,6 +45,7 @@ export function Overview() {
       </div>
       {render(currentWeekly, 'Diese Woche')}
       {render(currentMonthly, 'Dieser Monat')}
+      <ConfirmDialog />
     </div>
   );
 }

@@ -100,14 +100,15 @@ Versand durch `.github/workflows/reminders.yml` (Cron, stündlich). Das Skript p
 
 | Wann | Was |
 |---|---|
-| Montag 09:00 | „Diese Woche bist du dran mit: Müll (Mo 02.11. – So 08.11.)“ |
-| Freitag 10:00 | „Dieses Wochenende: Küche putzen“ |
-| Sonntag 18:00 | Erinnerung, falls noch nicht abgehakt |
-| 1. des Monats 10:00 | Monatsaufgabe |
-| 3 Tage vor Monatsende | Erinnerung, falls offen |
-| Sofort (vom Client ausgelöst) | Nicht per Push möglich ohne Server, daher: Umverteilungen erscheinen beim nächsten Cron-Lauf als „Neu zugeteilt: …“ |
+| Wochenend-Aufgaben (Saugen, Küche) | Fr, Sa, So 17:00 und So 20:00, solange nicht abgehakt – mit Buttons „✓ Erledigt“ / „Noch nicht“ |
+| Ganze-Woche-Aufgaben (Müll) | Mo, Mi, Fr, So 17:00, solange nicht abgehakt – ohne Abhak-Button |
+| 1. des Monats 10:00 | Monatsaufgabe (abhakbar) |
+| 3 Tage vor Monatsende 10:00 | Erinnerung, falls offen (abhakbar) |
+| Bei Umverteilung | „Neu zugeteilt: …“ beim nächsten Cron-Lauf |
 
-Secrets in GitHub: `FIREBASE_SERVICE_ACCOUNT`, `VAPID_PRIVATE_KEY`. Der öffentliche VAPID-Key liegt im Frontend. (GitHub-Cron kann sich um einige Minuten verzögern, für Erinnerungen ist das egal.)
+Der Cron läuft zweimal pro Stunde; ein Termin wird bis zu 3 Stunden später nachgeholt (Dedup über `sentReminders`). Auf dem iPhone gibt es keine Buttons in der Nachricht: Ein Tipp öffnet die App mit der Rückfrage „Hast du … erledigt?“.
+
+Secret in GitHub: `VAPID_PRIVATE_KEY`. Der öffentliche VAPID-Key liegt im Frontend. (GitHub-Cron kann sich um einige Minuten verzögern, für Erinnerungen ist das egal.)
 
 ---
 

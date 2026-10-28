@@ -87,6 +87,23 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     const after = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
     expect(after.completions.length).toBe(1);
 
+    // Rückfrage-Dialog aus einer Benachrichtigung (#/overview?confirm=<periodKey>|<taskId>)
+    const week = after.completions[0].periodKey as string;
+    const openTask = ['saugen', 'kueche', 'muell'].find((t) => !after.completions.some((c: { taskId: string }) => c.taskId === t))!;
+    await act(async () => {
+      window.location.hash = `#/overview?confirm=${encodeURIComponent(`${week}|${openTask}`)}`;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await flush(10);
+    expect(container.textContent).toContain('erledigt?');
+    const yes = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Ja, erledigt'))!;
+    await act(async () => yes.click());
+    await flush(10);
+    const final = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
+    expect(final.completions.length).toBe(2);
+    expect(window.location.hash).not.toContain('confirm');
+    expect(container.textContent).not.toContain('Ja, erledigt');
+
     await act(async () => root.unmount());
   });
 });

@@ -98,6 +98,15 @@ Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den 
 
 5. Erinnerungen prüfen: **Actions → Putzplan-Erinnerungen → Run workflow**. Der Lauf sollte ohne Fehler durchlaufen.
 
+   **Wann kommen Erinnerungen?** Nur an die zuständige Person und nur, solange die Aufgabe nicht abgehakt ist:
+   - Saugen und Küche (Wochenende): Freitag, Samstag und Sonntag um 17:00, Sonntag zusätzlich um 20:00. In der Nachricht kann man direkt auf **✓ Erledigt** tippen.
+   - Müll (ganze Woche): Montag, Mittwoch, Freitag und Sonntag um 17:00.
+   - Monatsaufgaben: am 1. des Monats und 3 Tage vor Monatsende um 10:00.
+
+   GitHub startet den Lauf manchmal verspätet; Erinnerungen werden bis zu 3 Stunden später nachgeholt, aber nie doppelt.
+
+   **iPhone:** Dort zeigt die Nachricht keine Buttons. Ein Tipp öffnet die App mit der Frage „Hast du … erledigt?“ – mit **✓ Ja, erledigt** wird abgehakt.
+
 6. **Keepalive:** GitHub schaltet Cron-Workflows nach 60 Tagen ohne Aktivität im Repo ab. Der Workflow **Keepalive** schreibt deshalb alle zwei Wochen automatisch einen Zeitstempel ins Repo und aktiviert die Erinnerungen wieder. Manuell auslösen: **Actions → Keepalive → Run workflow**. Das erzeugt keinen Deploy.
 
 ---

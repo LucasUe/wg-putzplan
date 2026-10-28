@@ -5,7 +5,7 @@ Progressive Web-App für Lucas, Marlen und Paul: wöchentliche und monatliche Pu
 - Frontend: Vite, React, TypeScript, Tailwind CSS, HashRouter
 - Daten: Firebase Firestore (ohne Config läuft die App im Demo-Modus im Browser)
 - Hosting: GitHub Pages (Deploy bei jedem Push auf `main`)
-- Erinnerungen: GitHub Actions (stündlich), Skript `scripts/send-reminders.ts`
+- Erinnerungen: GitHub Actions (alle 30 Minuten), Skript `scripts/send-reminders.ts`. Wochenend-Aufgaben Fr/Sa/So 17:00 + So 20:00, Müll Mo/Mi/Fr/So 17:00, Monatsaufgaben am 1. und 3 Tage vor Monatsende; jeweils nur, solange nicht abgehakt
 
 Einrichtung: siehe [SETUP.md](SETUP.md). Spezifikation: [PLAN.md](PLAN.md).
 
