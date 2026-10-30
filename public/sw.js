@@ -1,5 +1,5 @@
 // Service Worker: App-Shell-Cache (Offline-Start) und Push-Empfang.
-const CACHE = 'wg-putzplan-v2';
+const CACHE = 'wg-putzplan-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -88,7 +88,7 @@ async function openApp(hash) {
 }
 
 function confirmHash(data) {
-  return data && data.canComplete && data.periodKey && data.taskId
+  return data && !data.test && data.canComplete && data.periodKey && data.taskId
     ? `./#/overview?confirm=${encodeURIComponent(`${data.periodKey}|${data.taskId}`)}`
     : './#/overview';
 }
@@ -116,11 +116,25 @@ async function completeViaRest(data) {
   if (!res.ok) throw new Error(`Firestore ${res.status}`);
 }
 
+/** Kurze Bestätigung zeigen und nach 4 s wieder schließen. */
+async function showBriefly(title, tag) {
+  await self.registration.showNotification(title, { tag, icon: './icon-192.png', badge: './icon-192.png', silent: true });
+  await sleep(4000);
+  const shown = await self.registration.getNotifications({ tag });
+  shown.forEach((n) => n.close());
+}
+
 self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   event.notification.close();
 
   if (event.action === 'later') return;
+
+  if (event.action === 'done' && data.test) {
+    // Testbenachrichtigung: nichts speichern, nur bestätigen
+    event.waitUntil(showBriefly('✓ Test erfolgreich – die Knöpfe funktionieren', 'test-ok'));
+    return;
+  }
 
   if (event.action === 'done') {
     event.waitUntil(

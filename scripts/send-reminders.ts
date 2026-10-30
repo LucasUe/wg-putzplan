@@ -15,6 +15,9 @@ import type { Absence, Completion, Household, Override, Snapshot, Task } from '.
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const atArg = args.find((a) => a.startsWith('--at='));
+/** --test (alle) bzw. --test=<memberId>: sofort eine Testbenachrichtigung senden */
+const testArg = args.find((a) => a === '--test' || a.startsWith('--test='));
+const testMember = testArg?.startsWith('--test=') ? testArg.slice('--test='.length) || null : null;
 const now = atArg ? new Date(atArg.slice('--at='.length)) : new Date();
 
 /** Push-Payload: der Service Worker kann damit direkt per Firestore-REST abhaken. */
@@ -59,6 +62,11 @@ async function main(): Promise<void> {
 
   const hh = (await getDoc(doc(db, 'household', 'main'))).data() as Household | undefined;
   if (!hh) throw new Error('household/main fehlt – App zuerst öffnen, damit die Daten angelegt werden.');
+
+  if (testArg) {
+    await sendTest(db, hh, testMember);
+    return;
+  }
   const tasks = await all<Task>('tasks');
   const absences = await all<Absence>('absences');
   const snapshots = await all<Snapshot>('snapshots');
@@ -127,6 +135,47 @@ async function main(): Promise<void> {
     }
   } else {
     console.log(`[Dry-Run] ${result.newSnapshots.length} Snapshot(s) würden angelegt.`);
+  }
+}
+
+/** Testbenachrichtigung an alle Geräte (oder einer Person). Kein Dedup, keine Snapshots. */
+async function sendTest(db: Firestore, hh: Household, onlyMember: string | null): Promise<void> {
+  const members = onlyMember ? hh.members.filter((m) => m.id === onlyMember) : hh.members;
+  if (members.length === 0) throw new Error(`Unbekannte Person: ${onlyMember}`);
+  const subs = (await getDocs(collection(db, 'pushSubscriptions'))).docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as { memberId: string; subscription: webpush.PushSubscription }),
+  }));
+  console.log(`Testbenachrichtigung${dryRun ? ' [Dry-Run]' : ''} an ${onlyMember ?? 'alle'}`);
+  for (const m of members) {
+    const mine = subs.filter((s) => s.memberId === m.id);
+    const results: string[] = [];
+    for (const s of mine) {
+      if (dryRun) {
+        results.push('dry-run');
+        continue;
+      }
+      const payload = {
+        title: '🔔 Testbenachrichtigung',
+        body: `Hallo ${m.name}, Benachrichtigungen funktionieren. Tippe auf ✓ Erledigt, um die Knöpfe zu testen.`,
+        tag: `test-${m.id}`,
+        url: './#/overview',
+        data: { canComplete: true, test: true, url: './#/overview' },
+      };
+      try {
+        await webpush.sendNotification(s.subscription, JSON.stringify(payload));
+        results.push('ok');
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status === 404 || status === 410) {
+          await deleteDoc(doc(db, 'pushSubscriptions', s.id));
+          results.push(`${status} (abgelaufen, entfernt)`);
+        } else {
+          results.push(String(status ?? 'Fehler'));
+        }
+      }
+    }
+    console.log(`- ${m.name}: ${mine.length} Gerät(e)${results.length ? ` -> ${results.join(', ')}` : ''}`);
   }
 }
 

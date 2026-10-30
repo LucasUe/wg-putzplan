@@ -107,6 +107,8 @@ Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den 
 
    **iPhone:** Dort zeigt die Nachricht keine Buttons. Ein Tipp öffnet die App mit der Frage „Hast du … erledigt?“ – mit **✓ Ja, erledigt** wird abgehakt.
 
+   **Testbenachrichtigung senden:** Actions → Putzplan-Erinnerungen → Run workflow → test: alle (oder eine Person) → Run workflow. Alle Geräte mit aktivierten Benachrichtigungen bekommen sofort eine Testnachricht; „✓ Erledigt“ darin speichert nichts, sondern bestätigt nur, dass die Knöpfe funktionieren. Im Lauf steht pro Person die Anzahl Geräte und das Ergebnis.
+
 6. **Keepalive:** GitHub schaltet Cron-Workflows nach 60 Tagen ohne Aktivität im Repo ab. Der Workflow **Keepalive** schreibt deshalb alle zwei Wochen automatisch einen Zeitstempel ins Repo und aktiviert die Erinnerungen wieder. Manuell auslösen: **Actions → Keepalive → Run workflow**. Das erzeugt keinen Deploy.
 
 ---

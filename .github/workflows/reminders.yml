@@ -5,6 +5,12 @@ on:
     # zweimal pro Stunde (UTC); fällig ist, was in den letzten 3 h (irische Zeit) anstand
     - cron: '7,37 * * * *'
   workflow_dispatch:
+    inputs:
+      test:
+        description: 'Testbenachrichtigung senden (statt normalem Lauf)'
+        type: choice
+        options: ['nein', 'alle', 'lucas', 'marleen', 'paul']
+        default: 'nein'
 
 permissions:
   contents: read
@@ -23,4 +29,10 @@ jobs:
       - name: Erinnerungen senden
         env:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
-        run: npx tsx scripts/send-reminders.ts
+          TEST_TARGET: ${{ github.event.inputs.test || 'nein' }}
+        run: |
+          case "$TEST_TARGET" in
+            nein) npx tsx scripts/send-reminders.ts ;;
+            alle) npx tsx scripts/send-reminders.ts --test ;;
+            *) npx tsx scripts/send-reminders.ts "--test=$TEST_TARGET" ;;
+          esac
