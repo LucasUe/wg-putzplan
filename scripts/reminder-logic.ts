@@ -16,7 +16,7 @@ import type { Absence, Completion, Member, Override, Snapshot, Task } from '../s
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
- * Zeitzone Europe/Dublin (Irland). Ein Termin ist fällig, wenn er in (now − 3 h, now] liegt und
+ * Zeitzone Europe/Dublin (Irland). Ein Termin ist fällig, wenn er in (now − 8 h, now] liegt und
  * sein Dedup-Schlüssel noch nicht versendet wurde. So schaden verspätete GitHub-Crons nicht.
  */
 
@@ -63,7 +63,12 @@ export interface ReminderResult {
 const HORIZON_DAYS = 40;
 const DAY_MS = 86_400_000;
 /** Wie lange ein verpasster Termin noch nachgeholt wird */
-export const CATCH_UP_MS = 3 * 3_600_000;
+/** GitHub startet geplante Läufe teils nur alle 4–7 Stunden, daher großzügig nachholen. */
+export const CATCH_UP_MS = 8 * 3_600_000;
+/** Nachtruhe (irische Zeit): Verspätet nachgeholte Erinnerungen kommen nicht zwischen 22 und 8 Uhr. */
+export const QUIET_FROM_HOUR = 22;
+export const QUIET_UNTIL_HOUR = 8;
+
 
 interface Slot {
   rule: string;
@@ -101,6 +106,7 @@ export function planReminders(input: ReminderInput): ReminderResult {
   const { now, members, tasks } = input;
   const today = berlinDay(now);
   const hour = Number(formatInTimeZone(now, TZ, 'H'));
+  const quietHours = hour >= QUIET_FROM_HOUR || hour < QUIET_UNTIL_HOUR;
 
   // Erledigte Aufgaben: ID-Menge für "offen" und Pins (bleiben bei der abhakenden Person).
   const completionIds = new Set(input.completions.map((c) => c.id));
@@ -144,10 +150,14 @@ export function planReminders(input: ReminderInput): ReminderResult {
       const range = windowFor(ps.period, t.window);
       const end = rangeEnd(range);
       const endText = formatDayTime(new Date(end.getTime() - 60_000));
-      for (const slot of slotsFor(t, ps.period, range)) {
+      // Nur den jüngsten fälligen Termin senden: Holt ein verspäteter Lauf mehrere Termine nach,
+      // kommt pro Aufgabe nur eine Nachricht. Ältere Termine werden danach nie mehr gewählt.
+      if (quietHours) continue;
+      const due = slotsFor(t, ps.period, range).filter((slot) => {
         const at = slot.at.getTime();
-        if (at > now.getTime() || at <= now.getTime() - CATCH_UP_MS) continue;
-        if (at >= end.getTime()) continue; // Fenster schon vorbei
+        return at <= now.getTime() && at > now.getTime() - CATCH_UP_MS && at < end.getTime();
+      });
+      for (const slot of due.slice(-1)) {
         let body: string;
         if (slot.rule === 'wk') {
           body = `${t.icon} ${t.name}: Diese Woche bist du dran (${formatDayRangeShort(range)} 23:59)`;

@@ -106,7 +106,7 @@ Versand durch `.github/workflows/reminders.yml` (Cron, zweimal pro Stunde). Das 
 | 3 Tage vor Monatsende 10:00 (irische Zeit) | Erinnerung, falls offen (abhakbar) |
 | Bei Umverteilung | „Neu zugeteilt: …“ beim nächsten Cron-Lauf |
 
-Der Cron läuft zweimal pro Stunde; ein Termin wird bis zu 3 Stunden später nachgeholt (Dedup über `sentReminders`). Auf dem iPhone gibt es keine Buttons in der Nachricht: Ein Tipp öffnet die App mit der Rückfrage „Hast du … erledigt?“.
+Der Cron läuft zweimal pro Stunde; ein Termin wird bis zu 8 Stunden später nachgeholt, pro Aufgabe nur der jüngste, mit Nachtruhe 22–8 Uhr (Dedup über `sentReminders`). GitHub startet geplante Läufe in der Praxis nur alle 4–7 Stunden. Auf dem iPhone gibt es keine Buttons in der Nachricht: Ein Tipp öffnet die App mit der Rückfrage „Hast du … erledigt?“.
 
 Secret in GitHub: `VAPID_PRIVATE_KEY`. Der öffentliche VAPID-Key liegt im Frontend. (GitHub-Cron kann sich um einige Minuten verzögern, für Erinnerungen ist das egal.)
 

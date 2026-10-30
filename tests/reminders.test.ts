@@ -34,7 +34,7 @@ describe('Erinnerungen (Europe/Dublin, irische Zeit)', () => {
   });
 
   it('Wochenend-Aufgaben: an anderen Tagen und Zeiten nichts', () => {
-    for (const at of ['2026-11-05T17:00:00Z', '2026-11-06T10:00:00Z', '2026-11-06T16:30:00Z', '2026-11-02T17:00:00Z', '2026-11-07T23:00:00Z']) {
+    for (const at of ['2026-11-05T17:00:00Z', '2026-11-06T10:00:00Z', '2026-11-06T16:30:00Z', '2026-11-02T17:00:00Z', '2026-11-07T23:00:00Z', '2026-11-07T08:30:00Z']) {
       expect(rule(planReminders(base(at)), 'we-'), at).toHaveLength(0);
     }
   });
@@ -62,20 +62,31 @@ describe('Erinnerungen (Europe/Dublin, irische Zeit)', () => {
     expect(rule(planReminders(base('2026-11-04T17:00:00Z', { completions: done })), 'wk-')).toHaveLength(0);
   });
 
-  it('verspäteter Lauf: 18:40 holt den 17:00-Termin nach, 20:30 nicht mehr; Dedup verhindert Doppelte', () => {
-    const late = planReminders(base('2026-11-06T18:40:00Z')); // Fr 18:40 (irische Zeit)
+  it('verspäteter Lauf: holt bis 8 h nach, Dedup verhindert Doppelte, Nachtruhe 22–8 Uhr', () => {
+    const late = planReminders(base('2026-11-06T21:40:00Z')); // Fr 21:40 (irische Zeit), 4,7 h nach 17:00
     expect(rule(late, 'we-2026-W45-')).toHaveLength(2);
     expect(rule(late, 'wk-2026-W45-')).toHaveLength(1);
-    const again = planReminders(base('2026-11-06T19:10:00Z', { sentKeys: new Set(late.messages.map((m) => m.key)) }));
+    const again = planReminders(base('2026-11-06T21:55:00Z', { sentKeys: new Set(late.messages.map((m) => m.key)) }));
     expect(again.messages).toHaveLength(0);
-    const tooLate = planReminders(base('2026-11-06T20:30:00Z')); // Fr 20:30 (irische Zeit), 3,5 h nach 17:00
-    expect(tooLate.messages).toHaveLength(0);
+    const night = planReminders(base('2026-11-06T22:30:00Z')); // Fr 22:30: Nachtruhe
+    expect(rule(night, 'we-')).toHaveLength(0);
+    expect(rule(night, 'wk-')).toHaveLength(0);
+    const nextMorning = planReminders(base('2026-11-07T09:00:00Z')); // Sa 09:00: Fr 17:00 ist > 8 h her
+    expect(rule(nextMorning, 'we-')).toHaveLength(0);
+  });
+
+  it('mehrere verpasste Termine: pro Aufgabe nur der jüngste', () => {
+    const r = planReminders(base('2026-11-08T21:30:00Z')); // So 21:30: 17:00 und 20:00 sind beide fällig
+    const we = rule(r, 'we-');
+    expect(we).toHaveLength(2);
+    expect(we.every((m) => m.key.endsWith('2026-11-08T20'))).toBe(true);
   });
 
   it('Sonntag 20:30: nur der 20:00-Termin, nicht nochmal 17:00', () => {
     const r = planReminders(base('2026-11-08T20:30:00Z'));
-    expect(r.messages.every((m) => m.key.endsWith('2026-11-08T20'))).toBe(true);
-    expect(rule(r, 'we-')).toHaveLength(2);
+    const we = rule(r, 'we-');
+    expect(we).toHaveLength(2);
+    expect(we.every((m) => m.key.endsWith('2026-11-08T20'))).toBe(true);
   });
 
   it('1. des Monats 10:00: Monatsaufgaben, abhakbar', () => {

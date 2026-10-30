@@ -2,7 +2,7 @@ name: Putzplan-Erinnerungen
 
 on:
   schedule:
-    # zweimal pro Stunde (UTC); fällig ist, was in den letzten 3 h (irische Zeit) anstand
+    # zweimal pro Stunde (UTC); fällig ist, was in den letzten 8 h (irische Zeit) anstand; GitHub verzögert geplante Läufe oft um Stunden
     - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:

@@ -103,7 +103,7 @@ Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den 
    - Müll (ganze Woche): Montag, Mittwoch, Freitag und Sonntag um 17:00 (irische Zeit).
    - Monatsaufgaben: am 1. des Monats und 3 Tage vor Monatsende um 10:00 (irische Zeit).
 
-   GitHub startet den Lauf manchmal verspätet; Erinnerungen werden bis zu 3 Stunden später nachgeholt, aber nie doppelt.
+   GitHub startet geplante Läufe bei kleinen Repos oft nur alle 4–7 Stunden. Erinnerungen werden deshalb bis zu 8 Stunden später nachgeholt (pro Aufgabe nur die jüngste, nie doppelt), aber nicht zwischen 22 und 8 Uhr irischer Zeit. Für pünktliche Nachrichten kann ein externer Dienst wie cron-job.org den Workflow anstoßen.
 
    **iPhone:** Dort zeigt die Nachricht keine Buttons. Ein Tipp öffnet die App mit der Frage „Hast du … erledigt?“ – mit **✓ Ja, erledigt** wird abgehakt.
 
