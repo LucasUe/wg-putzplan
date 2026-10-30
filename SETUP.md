@@ -99,9 +99,9 @@ Neues Schlüsselpaar nötig? `npx web-push generate-vapid-keys` ausführen, den 
 5. Erinnerungen prüfen: **Actions → Putzplan-Erinnerungen → Run workflow**. Der Lauf sollte ohne Fehler durchlaufen.
 
    **Wann kommen Erinnerungen?** Nur an die zuständige Person und nur, solange die Aufgabe nicht abgehakt ist:
-   - Saugen und Küche (Wochenende): Freitag, Samstag und Sonntag um 17:00, Sonntag zusätzlich um 20:00. In der Nachricht kann man direkt auf **✓ Erledigt** tippen.
-   - Müll (ganze Woche): Montag, Mittwoch, Freitag und Sonntag um 17:00.
-   - Monatsaufgaben: am 1. des Monats und 3 Tage vor Monatsende um 10:00.
+   - Saugen und Küche (Wochenende): Freitag, Samstag und Sonntag um 17:00, Sonntag zusätzlich um 20:00 (irische Zeit). In der Nachricht kann man direkt auf **✓ Erledigt** tippen.
+   - Müll (ganze Woche): Montag, Mittwoch, Freitag und Sonntag um 17:00 (irische Zeit).
+   - Monatsaufgaben: am 1. des Monats und 3 Tage vor Monatsende um 10:00 (irische Zeit).
 
    GitHub startet den Lauf manchmal verspätet; Erinnerungen werden bis zu 3 Stunden später nachgeholt, aber nie doppelt.
 

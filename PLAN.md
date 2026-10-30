@@ -54,11 +54,11 @@ pushSubscriptions/{memberId_deviceHash}
 
 ---
 
-## 3. Zeiträume (klar sichtbar mit Datum & Uhrzeit)
+## 3. Zeiträume (klar sichtbar mit Datum & Uhrzeit, alle Zeiten in irischer Zeit, Europe/Dublin)
 
-- **Wochenend-Aufgaben:** Freitag 00:00 – Sonntag 23:59 der jeweiligen Woche.
-- **Müll (ganze Woche):** z. B. Montag 00:00 – Sonntag 23:59 (Beginn konfigurierbar, siehe offene Fragen). Auf jeder Karte steht der konkrete Zeitraum, z. B. **„Mo 02.11. 00:00 – So 08.11. 23:59“**, dazu ein Countdown („noch 3 Tage 4 Std“).
-- **Monatlich:** 1. des Monats 00:00 – letzter Tag 23:59.
+- **Wochenend-Aufgaben:** Freitag 00:00 – Sonntag 23:59 (irische Zeit) der jeweiligen Woche.
+- **Müll (ganze Woche):** z. B. Montag 00:00 – Sonntag 23:59 (irische Zeit; Beginn konfigurierbar, siehe offene Fragen). Auf jeder Karte steht der konkrete Zeitraum, z. B. **„Mo 02.11. 00:00 – So 08.11. 23:59“**, dazu ein Countdown („noch 3 Tage 4 Std“).
+- **Monatlich:** 1. des Monats 00:00 – letzter Tag 23:59 (irische Zeit).
 
 ---
 
@@ -96,14 +96,14 @@ Prinzip **„Rotation + Übernahmen“**, getrennt für wöchentliche und monatl
 
 ## 6. Benachrichtigungen
 
-Versand durch `.github/workflows/reminders.yml` (Cron, stündlich). Das Skript prüft, welche Nachrichten in der aktuellen Stunde fällig sind (Zeitzone Europe/Berlin), und merkt sich Versendetes in Firestore, damit nichts doppelt kommt:
+Versand durch `.github/workflows/reminders.yml` (Cron, zweimal pro Stunde). Das Skript prüft, welche Nachrichten fällig sind (irische Zeit, Europe/Dublin), und merkt sich Versendetes in Firestore, damit nichts doppelt kommt:
 
 | Wann | Was |
 |---|---|
-| Wochenend-Aufgaben (Saugen, Küche) | Fr, Sa, So 17:00 und So 20:00, solange nicht abgehakt – mit Buttons „✓ Erledigt“ / „Noch nicht“ |
-| Ganze-Woche-Aufgaben (Müll) | Mo, Mi, Fr, So 17:00, solange nicht abgehakt – ohne Abhak-Button |
-| 1. des Monats 10:00 | Monatsaufgabe (abhakbar) |
-| 3 Tage vor Monatsende 10:00 | Erinnerung, falls offen (abhakbar) |
+| Wochenend-Aufgaben (Saugen, Küche) | Fr, Sa, So 17:00 und So 20:00 (irische Zeit), solange nicht abgehakt – mit Buttons „✓ Erledigt“ / „Noch nicht“ |
+| Ganze-Woche-Aufgaben (Müll) | Mo, Mi, Fr, So 17:00 (irische Zeit), solange nicht abgehakt – ohne Abhak-Button |
+| 1. des Monats 10:00 (irische Zeit) | Monatsaufgabe (abhakbar) |
+| 3 Tage vor Monatsende 10:00 (irische Zeit) | Erinnerung, falls offen (abhakbar) |
 | Bei Umverteilung | „Neu zugeteilt: …“ beim nächsten Cron-Lauf |
 
 Der Cron läuft zweimal pro Stunde; ein Termin wird bis zu 3 Stunden später nachgeholt (Dedup über `sentReminders`). Auf dem iPhone gibt es keine Buttons in der Nachricht: Ein Tipp öffnet die App mit der Rückfrage „Hast du … erledigt?“.
@@ -119,7 +119,7 @@ Secret in GitHub: `VAPID_PRIVATE_KEY`. Der öffentliche VAPID-Key liegt im Front
 - Karten mit großem Emoji-Icon (🧹 Saugen, 🍳 Küche, 🗑️ Müll, 🧽 Wischen, 🧊 Kühlschrank, 📦 Pappe/Glas).
 - Status: offen (neutral), erledigt (abgehakt, gedimmt), überfällig (roter Rand).
 - Hell- und Dunkelmodus automatisch, Schrift Inter, abgerundete Ecken, viel Weißraum.
-- Sprache: Deutsch, Datumsformat `Fr 06.11. 00:00`.
+- Sprache: Deutsch, Datumsformat `Fr 06.11. 00:00` (irische Zeit).
 
 ---
 
@@ -128,7 +128,7 @@ Secret in GitHub: `VAPID_PRIVATE_KEY`. Der öffentliche VAPID-Key liegt im Front
 ```
 src/
   lib/schedule.ts        // computeSchedule, Verfügbarkeit, Fairness (pure, getestet)
-  lib/periods.ts         // Wochen-/Monatsgrenzen, Zeitzone Europe/Berlin
+  lib/periods.ts         // Wochen-/Monatsgrenzen, Zeitzone Europe/Dublin (Irland)
   lib/firebase.ts        // Init, Hooks (useTasks, useAbsences, …)
   pages/…                // Login, Overview, Plan, Absences, Tasks, Stats, Settings
   components/…           // TaskCard, MemberBadge, PeriodHeader, TabBar
@@ -158,7 +158,7 @@ SETUP.md                 // Schritt-für-Schritt: Firebase, Secrets, Pages aktiv
 
 ## 11. Entscheidungen (von Lucas bestätigt, 27.10.2026)
 
-- Müll-Woche: **Mo 00:00 – So 23:59** (Europe/Berlin).
+- Müll-Woche: **Mo 00:00 – So 23:59** (irische Zeit, Europe/Dublin).
 - Abwesende holen **nicht** nach – nur Anwesende gleichen untereinander aus (Soll nur bei Verfügbarkeit).
 - Erinnerungen: **Web-Push** über die PWA (VAPID, Versand via GitHub Actions Cron).
 - Repo: `LucasUe/wg-putzplan` (öffentlich) – muss Lucas selbst anlegen; Code wird lokal in `/home/user/wg-putzplan` gebaut.

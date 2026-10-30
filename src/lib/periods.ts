@@ -1,12 +1,12 @@
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 
 /**
- * Zeitraum-Logik. Alle "Tage" sind reine Kalendertage in Europe/Berlin im Format YYYY-MM-DD.
+ * Zeitraum-Logik. Alle "Tage" sind reine Kalendertage in Europe/Dublin (Irland) im Format YYYY-MM-DD.
  * Rechnungen mit Kalendertagen laufen über UTC-Mitternacht und sind daher frei von
  * Zeitumstellungs-Fehlern. Nur die Umrechnung in echte Zeitpunkte (Date) nutzt die Zeitzone.
  */
 
-export const TZ = 'Europe/Berlin';
+export const TZ = 'Europe/Dublin';
 const DAY_MS = 86_400_000;
 const WEEKDAY_SHORT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'] as const;
 
@@ -50,17 +50,17 @@ export function weekdayIndex(day: Day): number {
   return (new Date(dayMs(day)).getUTCDay() + 6) % 7;
 }
 
-/** Kalendertag (Berlin) eines Zeitpunkts. */
+/** Kalendertag (Irland) eines Zeitpunkts. */
 export function berlinDay(instant: Date): Day {
   return formatInTimeZone(instant, TZ, 'yyyy-MM-dd');
 }
 
-/** Zeitpunkt des Beginns (00:00 Berlin) eines Kalendertags. */
+/** Zeitpunkt des Beginns (00:00 irischer Zeit) eines Kalendertags. */
 export function dayStart(day: Day): Date {
   return fromZonedTime(`${day}T00:00:00`, TZ);
 }
 
-/** Exklusives Ende eines inklusiven Tagesbereichs (Beginn des Folgetags, 00:00 Berlin). */
+/** Exklusives Ende eines inklusiven Tagesbereichs (Beginn des Folgetags, 00:00 irischer Zeit). */
 export function rangeEnd(range: DayRange): Date {
   return dayStart(addDays(range.endDay, 1));
 }
@@ -106,7 +106,7 @@ export function periodOf(cadence: Cadence, day: Day): Period {
   return cadence === 'weekly' ? weekPeriod(day) : monthPeriod(day);
 }
 
-/** Periode, die den Zeitpunkt (Berlin) enthält. */
+/** Periode, die den Zeitpunkt (Irland) enthält. */
 export function periodAt(cadence: Cadence, instant: Date): Period {
   return periodOf(cadence, berlinDay(instant));
 }

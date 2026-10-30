@@ -45,14 +45,14 @@ describe('Wochen- und Monatsperioden', () => {
   });
 });
 
-describe('Zeitzone Europe/Berlin und Zeitumstellung', () => {
-  it('Montag 00:00 nach der Umstellung am 25.10.2026 liegt bei UTC 23:00 des Vortags', () => {
-    // Umstellung ist am Sonntag 25.10. (CEST -> CET), Montag 26.10. 00:00 ist CET = UTC+1 -> 23:00 UTC
-    expect(dayStart('2026-10-26').toISOString()).toBe('2026-10-25T23:00:00.000Z');
+describe('Zeitzone Europe/Dublin und Zeitumstellung', () => {
+  it('Montag 00:00 (irische Zeit) nach der Umstellung am 25.10.2026 liegt bei 00:00 UTC', () => {
+    // Umstellung ist am Sonntag 25.10. (IST -> GMT), Montag 26.10. 00:00 ist GMT = UTC+0
+    expect(dayStart('2026-10-26').toISOString()).toBe('2026-10-26T00:00:00.000Z');
   });
 
-  it('Sommerzeit: 00:00 am 01.10.2026 ist UTC 22:00 des 30.09.', () => {
-    expect(dayStart('2026-10-01').toISOString()).toBe('2026-09-30T22:00:00.000Z');
+  it('Sommerzeit (IST): 00:00 am 01.10.2026 (irische Zeit) ist UTC 23:00 des 30.09.', () => {
+    expect(dayStart('2026-10-01').toISOString()).toBe('2026-09-30T23:00:00.000Z');
   });
 
   it('Woche mit Zeitumstellung (19.–25.10.) hat 169 Stunden (eine Stunde mehr)', () => {
@@ -62,7 +62,7 @@ describe('Zeitzone Europe/Berlin und Zeitumstellung', () => {
     expect(hours).toBe(169);
   });
 
-  it('Formatierung zeigt Berliner Lokalzeit', () => {
+  it('Formatierung zeigt irische Ortszeit', () => {
     expect(formatRange(windowFor(weekPeriod('2026-10-26'), 'weekend'))).toBe('Fr 30.10. 00:00 – So 01.11. 23:59');
     expect(formatRange(weekPeriod('2026-11-02'))).toBe('Mo 02.11. 00:00 – So 08.11. 23:59');
   });

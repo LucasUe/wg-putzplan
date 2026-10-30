@@ -16,7 +16,7 @@ import type { Absence, Completion, Member, Override, Snapshot, Task } from '../s
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
- * Zeitzone Europe/Berlin. Ein Termin ist fällig, wenn er in (now − 3 h, now] liegt und
+ * Zeitzone Europe/Dublin (Irland). Ein Termin ist fällig, wenn er in (now − 3 h, now] liegt und
  * sein Dedup-Schlüssel noch nicht versendet wurde. So schaden verspätete GitHub-Crons nicht.
  */
 
@@ -70,8 +70,8 @@ interface Slot {
   at: Date;
 }
 
-/** Zeitpunkt "Tag HH:00" in Berlin. */
-function atBerlin(day: string, hour: number): Date {
+/** Zeitpunkt "Tag HH:00" in irischer Zeit. */
+function atLocal(day: string, hour: number): Date {
   return fromZonedTime(`${day}T${String(hour).padStart(2, '0')}:00:00`, TZ);
 }
 
@@ -80,20 +80,20 @@ function slotsFor(task: Task, period: Period, range: DayRange): Slot[] {
   if (task.window === 'weekend') {
     // Freitag, Samstag, Sonntag 17:00 sowie Sonntag 20:00
     return [
-      { rule: 'we', at: atBerlin(range.startDay, 17) },
-      { rule: 'we', at: atBerlin(addDays(range.startDay, 1), 17) },
-      { rule: 'we', at: atBerlin(addDays(range.startDay, 2), 17) },
-      { rule: 'we', at: atBerlin(addDays(range.startDay, 2), 20) },
+      { rule: 'we', at: atLocal(range.startDay, 17) },
+      { rule: 'we', at: atLocal(addDays(range.startDay, 1), 17) },
+      { rule: 'we', at: atLocal(addDays(range.startDay, 2), 17) },
+      { rule: 'we', at: atLocal(addDays(range.startDay, 2), 20) },
     ];
   }
   if (task.window === 'fullWeek') {
     // Montag, Mittwoch, Freitag, Sonntag 17:00
-    return [0, 2, 4, 6].map((d) => ({ rule: 'wk', at: atBerlin(addDays(period.startDay, d), 17) }));
+    return [0, 2, 4, 6].map((d) => ({ rule: 'wk', at: atLocal(addDays(period.startDay, d), 17) }));
   }
   // Monat: 1. des Monats 10:00 und 3 Tage vor Monatsende 10:00
   return [
-    { rule: 'mo-start', at: atBerlin(period.startDay, 10) },
-    { rule: 'mo-end', at: atBerlin(addDays(period.endDay, -2), 10) },
+    { rule: 'mo-start', at: atLocal(period.startDay, 10) },
+    { rule: 'mo-end', at: atLocal(addDays(period.endDay, -2), 10) },
   ];
 }
 

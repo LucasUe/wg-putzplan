@@ -125,7 +125,7 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     };
     const ownMonthly = ownNames.find((n) => periodOfCard(n) === 'monthly')!;
     expect(ownMonthly).toBeDefined();
-    const monthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date()).slice(0, 7);
+    const monthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Dublin' }).format(new Date()).slice(0, 7);
     const foreignMonthly = cards()
       .filter((c) => owner(c) !== 'Lucas' && periodOfCard(c.querySelector('h3')!.textContent!) === 'monthly')
       .map((c) => c.querySelector('h3')!.textContent!)[0] ?? foreignName;

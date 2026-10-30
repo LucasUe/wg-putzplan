@@ -242,7 +242,7 @@ describe('Aufgaben-Lebenszyklus', () => {
   });
 
   it('eine neue Aufgabe zählt erst ab ihrer Periode', () => {
-    const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-11-04T10:00:00+01:00' };
+    const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-11-04T10:00:00+00:00' };
     const s = computeSchedule(input({ tasks: [...WEEKLY, late] }));
     expect(Object.keys(holders(s, 'weekly', '2026-W44'))).not.toContain('neu');
     expect(Object.keys(holders(s, 'weekly', '2026-W45'))).toContain('neu');
@@ -310,7 +310,7 @@ describe('Snapshots und Pins', () => {
   });
 
   it('neue Aufgabe mitten in der laufenden Woche erscheint sofort', () => {
-    const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-10-27T10:00:00+01:00' };
+    const late = { ...task('neu', 'weekly', 'fullWeek'), createdAt: '2026-10-27T10:00:00+00:00' };
     const s = computeSchedule(input({ tasks: [...WEEKLY, late], until: new Date('2026-11-01T12:00:00Z'), now: new Date('2026-10-28T12:00:00Z') }));
     expect(Object.keys(holders(s, 'weekly', '2026-W44'))).toContain('neu');
   });
@@ -450,8 +450,9 @@ describe('Langzeit (52 Wochen, zufällige Abwesenheiten, fester Seed)', () => {
 
 describe('Zeitumstellung 25.10.2026', () => {
   it('Wochen und Tage bleiben über die Umstellung korrekt zugeordnet', () => {
-    expect(berlinDay(new Date('2026-10-25T22:30:00Z'))).toBe('2026-10-25'); // So 23:30 MEZ
-    expect(berlinDay(new Date('2026-10-25T23:30:00Z'))).toBe('2026-10-26'); // Mo 00:30 MEZ
+    expect(berlinDay(new Date('2026-10-25T23:30:00Z'))).toBe('2026-10-25'); // So 23:30 (irische Zeit, GMT)
+    expect(berlinDay(new Date('2026-10-26T00:30:00Z'))).toBe('2026-10-26'); // Mo 00:30 (irische Zeit, GMT)
+    expect(berlinDay(new Date('2026-10-24T23:30:00Z'))).toBe('2026-10-25'); // So 00:30 (irische Zeit, noch IST)
   });
 
   it('Woche 43 und 44 sind lückenlos, Wochenende-Fenster stimmt', () => {
