@@ -27,6 +27,9 @@ service cloud.firestore {
     match /overrides/{doc} {
       allow read, write: if true;
     }
+    match /pushLog/{doc} {
+      allow read, write: if true;
+    }
     match /sentReminders/{doc} {
       allow read, write: if true;
     }

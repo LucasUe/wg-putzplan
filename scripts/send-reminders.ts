@@ -113,7 +113,9 @@ async function main(): Promise<void> {
     for (const s of subs) {
       try {
         await webpush.sendNotification(s.subscription, JSON.stringify(payloadFor(msg)));
+        await logPush(db, s.id, msg.key);
       } catch (err) {
+        await logPush(db, s.id, msg.key, err);
         const status = (err as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
           await deleteDoc(doc(db, 'pushSubscriptions', s.id));
@@ -136,6 +138,18 @@ async function main(): Promise<void> {
   } else {
     console.log(`[Dry-Run] ${result.newSnapshots.length} Snapshot(s) würden angelegt.`);
   }
+}
+
+/** Letztes Versand-Ergebnis je Gerät in `pushLog` festhalten (zur Fehlersuche, Logs der Actions sind nicht immer lesbar). */
+async function logPush(db: Firestore, subId: string, kind: string, err?: unknown): Promise<void> {
+  const e = err as { statusCode?: number; body?: string; message?: string } | undefined;
+  await setDoc(doc(db, 'pushLog', subId), {
+    at: new Date().toISOString(),
+    kind,
+    ok: !err,
+    status: e?.statusCode ?? (err ? null : 201),
+    detail: err ? String(e?.body || e?.message || err).slice(0, 500) : '',
+  }).catch(() => undefined);
 }
 
 /** Testbenachrichtigung an alle Geräte (oder einer Person). Kein Dedup, keine Snapshots. */
@@ -164,8 +178,10 @@ async function sendTest(db: Firestore, hh: Household, onlyMember: string | null)
       };
       try {
         await webpush.sendNotification(s.subscription, JSON.stringify(payload));
+        await logPush(db, s.id, 'test');
         results.push('ok');
       } catch (err) {
+        await logPush(db, s.id, 'test', err);
         const status = (err as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
           await deleteDoc(doc(db, 'pushSubscriptions', s.id));
