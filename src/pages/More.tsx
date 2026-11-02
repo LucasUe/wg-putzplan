@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Field, SectionTitle, inputClass } from '../components/ui';
 import { useApp } from '../lib/AppContext';
 import { pinHashFor, sha256Hex } from '../lib/crypto';
 import { startedPeriods, getBalances } from '../lib/schedule';
-import { enablePush, isIOS, isStandalone, pushSupported, type PushResult } from '../lib/push';
+import { disablePush, enablePush, isIOS, isStandalone, pushActive, pushSupported, type PushResult } from '../lib/push';
 
 const fmt = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 1 });
 
@@ -26,11 +26,36 @@ export function More() {
   const monthlyBal = getBalances(startedPeriods(schedule.monthly, now), members);
   const doneCount = (id: string) => completions.filter((c) => c.doneBy === id).length;
 
+  const [active, setActive] = useState(false);
+  const [disabledMsg, setDisabledMsg] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void pushActive().then((on) => alive && setActive(on));
+    return () => {
+      alive = false;
+    };
+  }, [pushResult]);
+
   const onPush = async () => {
     if (!currentMember) return;
     setPushBusy(true);
-    setPushResult(await enablePush(store, currentMember.id));
+    setDisabledMsg(false);
+    const result = await enablePush(store, currentMember.id);
+    setPushResult(result);
+    setActive(result === 'ok' && (await pushActive()));
     setPushBusy(false);
+  };
+
+  const onDisable = async () => {
+    setPushBusy(true);
+    try {
+      await disablePush(store);
+    } finally {
+      setActive(false);
+      setPushResult(null);
+      setDisabledMsg(true);
+      setPushBusy(false);
+    }
   };
 
   const changePin = async (e: React.FormEvent) => {
@@ -103,14 +128,22 @@ export function More() {
             iPhone: Benachrichtigungen funktionieren nur, wenn die App über <strong>Teilen → Zum Home-Bildschirm</strong> installiert und von dort geöffnet wurde (iOS 16.4 oder neuer).
           </p>
         )}
-        {pushSupported() ? (
+        {!pushSupported() ? (
+          <p className="text-sm text-[var(--muted)]">Auf diesem Gerät nicht verfügbar.</p>
+        ) : active ? (
+          <>
+            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ Benachrichtigungen sind auf diesem Gerät aktiv</p>
+            <Button variant="secondary" className="w-full" onClick={onDisable} disabled={pushBusy}>
+              Benachrichtigungen deaktivieren
+            </Button>
+          </>
+        ) : (
           <Button className="w-full" onClick={onPush} disabled={pushBusy}>
             {pushBusy ? 'Bitte warten …' : 'Benachrichtigungen aktivieren'}
           </Button>
-        ) : (
-          <p className="text-sm text-[var(--muted)]">Auf diesem Gerät nicht verfügbar.</p>
         )}
-        {pushResult && <p className="text-sm">{PUSH_TEXT[pushResult]}</p>}
+        {disabledMsg && <p className="text-sm">Deaktiviert. Du bekommst auf diesem Gerät keine Erinnerungen mehr.</p>}
+        {pushResult && !active && <p className="text-sm">{PUSH_TEXT[pushResult]}</p>}
       </Card>
 
       <SectionTitle>Meine PIN</SectionTitle>

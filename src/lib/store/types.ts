@@ -25,4 +25,5 @@ export interface Store {
   saveOverride(override: Override): Promise<void>;
   deleteOverride(id: string): Promise<void>;
   savePushSubscription(record: PushSubscriptionRecord): Promise<void>;
+  deletePushSubscription(id: string): Promise<void>;
 }

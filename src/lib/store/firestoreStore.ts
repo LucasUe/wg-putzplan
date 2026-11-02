@@ -98,6 +98,9 @@ export async function createFirestoreStore(): Promise<Store> {
     async deleteOverride(id) {
       await deleteDoc(doc(db, 'overrides', id));
     },
+    async deletePushSubscription(id) {
+      await deleteDoc(doc(db, 'pushSubscriptions', id));
+    },
     async savePushSubscription(record: PushSubscriptionRecord) {
       await setDoc(doc(db, 'pushSubscriptions', record.id), {
         memberId: record.memberId,

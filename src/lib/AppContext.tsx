@@ -3,6 +3,7 @@ import { berlinDay } from './periods';
 import { buildSnapshot, computeSchedule, type PeriodSchedule, type Schedule, type TaskAssignment } from './schedule';
 import { createStore, type Store, type Unsubscribe } from './store';
 import { getStoredMemberId, setStoredMemberId } from './session';
+import { syncPush } from './push';
 import type { Absence, Completion, Household, Member, Override, Snapshot, Task } from './types';
 
 const DAY_MS = 86_400_000;
@@ -105,6 +106,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubs.forEach((u) => u());
     };
   }, []);
+
+  // Push-Adresse aktuell halten: beim Start und beim Zurückkehren in die App (max. alle 10 Min.)
+  useEffect(() => {
+    if (!store || !memberId) return;
+    void syncPush(store, memberId);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void syncPush(store, memberId);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [store, memberId]);
 
   // Uhrzeit alle 30 Sekunden aktualisieren (Countdowns, Status).
   useEffect(() => {

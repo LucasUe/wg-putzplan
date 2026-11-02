@@ -133,6 +133,9 @@ export async function createLocalStore(): Promise<Store> {
     async deleteOverride(id) {
       commit({ ...data, overrides: (data.overrides ?? []).filter((o) => o.id !== id) });
     },
+    async deletePushSubscription(id) {
+      commit({ ...data, pushSubscriptions: data.pushSubscriptions.filter((r) => r.id !== id) });
+    },
     async savePushSubscription(record) {
       const pushSubscriptions = [...data.pushSubscriptions.filter((r) => r.id !== record.id), record];
       commit({ ...data, pushSubscriptions });
