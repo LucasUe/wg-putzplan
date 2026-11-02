@@ -220,7 +220,7 @@ function ReminderEditor({
           <li key={i} className="flex items-center gap-2" data-testid="reminder-slot">
             <select
               aria-label="Tag"
-              className={`${inputClass} flex-1`}
+              className={`${inputClass.replace('w-full ', '')} min-w-0 flex-1`}
               value={slot.day}
               onChange={(e) => setSlot(i, { day: Number(e.target.value) })}
             >
@@ -233,7 +233,7 @@ function ReminderEditor({
             <input
               aria-label="Uhrzeit"
               type="time"
-              className={`${inputClass} w-28`}
+              className={`${inputClass.replace('w-full ', '')} w-32 shrink-0`}
               value={slot.time}
               onChange={(e) => setSlot(i, { time: e.target.value })}
             />
