@@ -25,6 +25,21 @@ export interface Task {
   active: boolean;
   /** ISO-Zeitstempel */
   createdAt: string;
+  /** Eigene Erinnerungen; fehlt = Standard je Zeitfenster (siehe defaultReminders) */
+  reminders?: TaskReminders;
+}
+
+/** Ein Erinnerungstermin. weekly: day 1=Mo … 7=So. monthly: 1–28 = Tag des Monats, 0 = letzter Tag, −1 = vorletzter … */
+export interface ReminderSlot {
+  day: number;
+  /** 'HH:MM', irische Zeit */
+  time: string;
+}
+
+export interface TaskReminders {
+  enabled: boolean;
+  withButtons: boolean;
+  slots: ReminderSlot[];
 }
 
 export interface Absence {

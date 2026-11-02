@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { planReminders, type ReminderInput } from '../scripts/reminder-logic';
 import { seedHousehold, seedTasks } from '../src/lib/seed';
+import { defaultReminders } from '../src/lib/reminders';
+import type { TaskReminders } from '../src/lib/types';
 
 const hh = seedHousehold('x');
 const base = (now: string, overrides: Partial<ReminderInput> = {}): ReminderInput => ({
@@ -133,5 +135,66 @@ describe('Erinnerungen (Europe/Dublin, irische Zeit)', () => {
     expect(keys).not.toContain('weekly:2026-W45');
     expect(keys).toContain('monthly:2026-10');
     expect(keys).not.toContain('monthly:2026-11');
+  });
+});
+
+describe('Erinnerungen pro Aufgabe einstellbar', () => {
+  const withReminders = (taskId: string, reminders: TaskReminders) =>
+    seedTasks().map((t) => (t.id === taskId ? { ...t, reminders } : t));
+  const forTask = (r: ReturnType<typeof planReminders>, taskId: string) => r.messages.filter((m) => m.taskId === taskId);
+
+  it('Standard entspricht dem bisherigen Verhalten', () => {
+    const tasks = seedTasks();
+    expect(defaultReminders(tasks.find((t) => t.id === 'saugen')!).slots).toEqual([
+      { day: 5, time: '17:00' }, { day: 6, time: '17:00' }, { day: 7, time: '17:00' }, { day: 7, time: '20:00' },
+    ]);
+    expect(defaultReminders(tasks.find((t) => t.id === 'wischen')!).slots).toEqual([{ day: 1, time: '10:00' }, { day: -2, time: '10:00' }]);
+    // Ausdrücklich gesetzter Standard erzeugt dieselben Schlüssel wie kein Eintrag
+    const explicit = withReminders('saugen', defaultReminders({ window: 'weekend' }));
+    const a = forTask(planReminders(base('2026-11-06T17:00:00Z')), 'saugen').map((m) => m.key);
+    const b = forTask(planReminders(base('2026-11-06T17:00:00Z', { tasks: explicit })), 'saugen').map((m) => m.key);
+    expect(b).toEqual(a);
+  });
+
+  it('eigener Termin: Saugen nur Sa 10:30 -> Key endet auf T1030, nur zu diesem Termin', () => {
+    const tasks = withReminders('saugen', { enabled: true, withButtons: true, slots: [{ day: 6, time: '10:30' }] });
+    const sat = forTask(planReminders(base('2026-11-07T10:30:00Z', { tasks })), 'saugen');
+    expect(sat).toHaveLength(1);
+    expect(sat[0].key).toMatch(/^r-2026-W45-saugen-.*-2026-11-07T1030$/);
+    expect(sat[0].canComplete).toBe(true);
+    for (const at of ['2026-11-06T17:00:00Z', '2026-11-07T10:00:00Z', '2026-11-08T17:00:00Z', '2026-11-08T20:00:00Z']) {
+      expect(forTask(planReminders(base(at, { tasks })), 'saugen'), at).toHaveLength(0);
+    }
+  });
+
+  it('enabled=false -> keine Termine', () => {
+    const tasks = withReminders('saugen', { ...defaultReminders({ window: 'weekend' }), enabled: false });
+    for (const at of ['2026-11-06T17:00:00Z', '2026-11-08T20:00:00Z']) {
+      expect(forTask(planReminders(base(at, { tasks })), 'saugen'), at).toHaveLength(0);
+      expect(forTask(planReminders(base(at, { tasks })), 'kueche'), at).toHaveLength(1);
+    }
+  });
+
+  it('withButtons=false -> canComplete false', () => {
+    const tasks = withReminders('saugen', { ...defaultReminders({ window: 'weekend' }), withButtons: false });
+    const m = forTask(planReminders(base('2026-11-06T17:00:00Z', { tasks })), 'saugen');
+    expect(m).toHaveLength(1);
+    expect(m[0].canComplete).toBe(false);
+  });
+
+  it('monatlich: day=0 -> letzter Tag, day=15 -> 15.', () => {
+    const tasks = withReminders('wischen', { enabled: true, withButtons: true, slots: [{ day: 0, time: '10:00' }, { day: 15, time: '10:00' }] });
+    const last = forTask(planReminders(base('2026-11-30T10:00:00Z', { tasks })), 'wischen');
+    expect(last).toHaveLength(1);
+    expect(last[0].key).toMatch(/-2026-11-30T10$/);
+    const mid = forTask(planReminders(base('2026-11-15T10:00:00Z', { tasks })), 'wischen');
+    expect(mid).toHaveLength(1);
+    expect(mid[0].key).toMatch(/-2026-11-15T10$/);
+    expect(forTask(planReminders(base('2026-11-01T10:00:00Z', { tasks })), 'wischen')).toHaveLength(0);
+  });
+
+  it('wöchentlicher Termin außerhalb des Fensters (Wochenende mit Di) wird ignoriert', () => {
+    const tasks = withReminders('saugen', { enabled: true, withButtons: true, slots: [{ day: 2, time: '17:00' }] });
+    expect(forTask(planReminders(base('2026-11-03T17:00:00Z', { tasks })), 'saugen')).toHaveLength(0);
   });
 });

@@ -156,6 +156,46 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     expect(window.location.hash).not.toContain('confirm');
     expect(buttonIn(cardFor(ownMonthly), 'Rückgängig')).toBeDefined();
 
+    // Erinnerungen einer Aufgabe bearbeiten: Saugen nur noch Sa 10:30
+    await act(async () => {
+      window.location.hash = '#/tasks';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await flush(10);
+    const saugenRow = [...container.querySelectorAll('li')].find((li) => li.textContent?.includes('Saugen') && li.textContent?.includes('Bearbeiten'))!;
+    expect(saugenRow.querySelector('[data-testid="reminder-summary"]')!.textContent).toBe('🔔 Fr, Sa, So 17:00 · So 20:00');
+    await act(async () => [...saugenRow.querySelectorAll('button')].find((b) => b.textContent === 'Bearbeiten')!.click());
+    await flush(5);
+    for (let i = 0; i < 3; i++) {
+      const remove = container.querySelector('[aria-label="Erinnerung entfernen"]') as HTMLButtonElement;
+      await act(async () => remove.click());
+    }
+    expect(container.querySelectorAll('[data-testid="reminder-slot"]')).toHaveLength(1);
+    const daySel = container.querySelector('[data-testid="reminder-slot"] select') as HTMLSelectElement;
+    const timeIn = container.querySelector('[data-testid="reminder-slot"] input[type="time"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(daySel, '6');
+      daySel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(timeIn, '10:30');
+      timeIn.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush(10);
+    const row = [...container.querySelectorAll('li')].find((li) => li.textContent?.includes('Saugen') && li.textContent?.includes('Bearbeiten'))!;
+    expect(row.querySelector('[data-testid="reminder-summary"]')!.textContent).toBe('🔔 Sa 10:30');
+    const saved = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
+    expect(saved.tasks.find((t: { id: string }) => t.id === 'saugen').reminders).toEqual({
+      enabled: true,
+      withButtons: true,
+      slots: [{ day: 6, time: '10:30' }],
+    });
+    // Andere Aufgaben behalten den Standard (kein Feld gespeichert)
+    expect(saved.tasks.find((t: { id: string }) => t.id === 'kueche').reminders).toBeUndefined();
+
     await act(async () => root.unmount());
   });
 });

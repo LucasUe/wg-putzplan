@@ -8,11 +8,11 @@ import {
   rangeEnd,
   TZ,
   windowFor,
-  type DayRange,
   type Period,
 } from '../src/lib/periods';
 import { buildSnapshot, computeSchedule, type PeriodSchedule, type Schedule } from '../src/lib/schedule';
-import type { Absence, Completion, Member, Override, Snapshot, Task } from '../src/lib/types';
+import { defaultRemindersFor, isValidTime, remindersOf, slotDay } from '../src/lib/reminders';
+import type { Absence, Completion, Member, Override, ReminderSlot, Snapshot, Task } from '../src/lib/types';
 
 /**
  * Reine Erinnerungslogik (PLAN.md Abschnitt 6), ohne Firebase und ohne Netzwerk.
@@ -73,33 +73,39 @@ export const QUIET_UNTIL_HOUR = 8;
 interface Slot {
   rule: string;
   at: Date;
+  /** Fällt der Termin auf den ersten Tag der Periode? (für den Monatsanfangs-Text) */
+  isStart: boolean;
 }
 
-/** Zeitpunkt "Tag HH:00" in irischer Zeit. */
-function atLocal(day: string, hour: number): Date {
-  return fromZonedTime(`${day}T${String(hour).padStart(2, '0')}:00:00`, TZ);
+/** Zeitpunkt "Tag HH:MM" in irischer Zeit. */
+function atLocal(day: string, time: string): Date {
+  return fromZonedTime(`${day}T${time}:00`, TZ);
 }
 
-/** Erinnerungstermine einer Aufgabe in ihrer Periode. */
-function slotsFor(task: Task, period: Period, range: DayRange): Slot[] {
-  if (task.window === 'weekend') {
-    // Freitag, Samstag, Sonntag 17:00 sowie Sonntag 20:00
-    return [
-      { rule: 'we', at: atLocal(range.startDay, 17) },
-      { rule: 'we', at: atLocal(addDays(range.startDay, 1), 17) },
-      { rule: 'we', at: atLocal(addDays(range.startDay, 2), 17) },
-      { rule: 'we', at: atLocal(addDays(range.startDay, 2), 20) },
-    ];
+/**
+ * Regelname für den Dedup-Schlüssel. Standard-Termine behalten die bisherigen Namen
+ * (we/wk/mo-start/mo-end), damit schon gesendete Erinnerungen nicht erneut kommen.
+ */
+function ruleName(window: Task['window'], slot: ReminderSlot): string {
+  const isDefault = defaultRemindersFor(window).slots.some((d) => d.day === slot.day && d.time === slot.time);
+  if (!isDefault) return 'r';
+  if (window === 'weekend') return 'we';
+  if (window === 'fullWeek') return 'wk';
+  return slot.day === 1 ? 'mo-start' : 'mo-end';
+}
+
+/** Erinnerungstermine einer Aufgabe in ihrer Periode, zeitlich sortiert. */
+function slotsFor(task: Task, period: Period): Slot[] {
+  const cfg = remindersOf(task);
+  if (!cfg.enabled) return [];
+  const out: Slot[] = [];
+  for (const slot of cfg.slots) {
+    if (!isValidTime(slot.time)) continue;
+    const day = slotDay(task.window, period, slot);
+    if (day === null) continue; // außerhalb des Aufgabenfensters
+    out.push({ rule: ruleName(task.window, slot), at: atLocal(day, slot.time), isStart: day === period.startDay });
   }
-  if (task.window === 'fullWeek') {
-    // Montag, Mittwoch, Freitag, Sonntag 17:00
-    return [0, 2, 4, 6].map((d) => ({ rule: 'wk', at: atLocal(addDays(period.startDay, d), 17) }));
-  }
-  // Monat: 1. des Monats 10:00 und 3 Tage vor Monatsende 10:00
-  return [
-    { rule: 'mo-start', at: atLocal(period.startDay, 10) },
-    { rule: 'mo-end', at: atLocal(addDays(period.endDay, -2), 10) },
-  ];
+  return out.sort((x, y) => x.at.getTime() - y.at.getTime());
 }
 
 export function planReminders(input: ReminderInput): ReminderResult {
@@ -153,21 +159,24 @@ export function planReminders(input: ReminderInput): ReminderResult {
       // Nur den jüngsten fälligen Termin senden: Holt ein verspäteter Lauf mehrere Termine nach,
       // kommt pro Aufgabe nur eine Nachricht. Ältere Termine werden danach nie mehr gewählt.
       if (quietHours) continue;
-      const due = slotsFor(t, ps.period, range).filter((slot) => {
+      const due = slotsFor(t, ps.period).filter((slot) => {
         const at = slot.at.getTime();
         return at <= now.getTime() && at > now.getTime() - CATCH_UP_MS && at < end.getTime();
       });
       for (const slot of due.slice(-1)) {
         let body: string;
-        if (slot.rule === 'wk') {
+        if (t.window === 'fullWeek') {
           body = `${t.icon} ${t.name}: Diese Woche bist du dran (${formatDayRangeShort(range)} 23:59)`;
-        } else if (slot.rule === 'mo-start') {
+        } else if (t.window === 'fullMonth' && slot.isStart) {
           body = `${t.icon} Diesen Monat bist du mit ${t.name} dran – bis ${endText}`;
         } else {
           body = `${t.icon} ${t.name} ist noch offen – bis ${endText}`;
         }
         push({
-          key: `${slot.rule}-${ps.period.key}-${t.id}-${a.memberId}-${formatInTimeZone(slot.at, TZ, "yyyy-MM-dd'T'HH")}`,
+          // Bei vollen Stunden exakt wie bisher (…THH), sonst mit Minuten (…THHmm)
+          key: `${slot.rule}-${ps.period.key}-${t.id}-${a.memberId}-${formatInTimeZone(slot.at, TZ, "yyyy-MM-dd'T'HH")}${
+            formatInTimeZone(slot.at, TZ, 'mm') === '00' ? '' : formatInTimeZone(slot.at, TZ, 'mm')
+          }`,
           memberId: a.memberId,
           title: 'WG-Putzplan',
           body,
@@ -176,7 +185,7 @@ export function planReminders(input: ReminderInput): ReminderResult {
           periodKey: ps.period.key,
           taskId: t.id,
           taskName: t.name,
-          canComplete: t.window !== 'fullWeek',
+          canComplete: remindersOf(t).withButtons,
         });
       }
     }

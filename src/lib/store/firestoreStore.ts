@@ -73,7 +73,9 @@ export async function createFirestoreStore(): Promise<Store> {
       await updateDoc(hhRef, patch as DocumentData);
     },
     async saveTask(task) {
-      await setDoc(doc(db, 'tasks', task.id), task);
+      // setDoc ersetzt das ganze Dokument: fehlt "reminders", ist es danach gelöscht. Kein undefined schreiben.
+      const clean = Object.fromEntries(Object.entries(task).filter(([, v]) => v !== undefined));
+      await setDoc(doc(db, 'tasks', task.id), clean);
     },
     async saveAbsence(absence) {
       await setDoc(doc(db, 'absences', absence.id), absence);
