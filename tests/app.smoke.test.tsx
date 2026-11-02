@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
+import { formatDayTime, dayStart, periodAt } from '../src/lib/periods';
 
 // Smoke-Test läuft immer im Demo-Modus, auch wenn eine echte Firebase-Config eingetragen ist.
 vi.mock('../src/firebaseConfig', () => ({
@@ -71,13 +72,15 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     expect(container.textContent).toContain('Diese Woche');
     expect(container.textContent).toContain('Saugen');
     expect(container.textContent).toContain('Küche putzen');
-    expect(container.textContent).toMatch(/Mo 26\.10\.|Fr 30\.10\.|So 01\.11\./);
+    // Datumsunabhängig: aktuelle Woche aus der Systemzeit
+    const week = periodAt('weekly', new Date());
+    expect(container.textContent).toContain(formatDayTime(dayStart(week.startDay)).slice(0, 9));
     expect(container.textContent).toContain('Dieser Monat');
     expect(container.textContent).toContain('Wohnung wischen');
 
     // Nur beendete Perioden werden eingefroren; die laufende Woche bleibt live
     const data = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}');
-    expect(data.snapshots.map((s: { periodKey: string }) => s.periodKey)).not.toContain('2026-W44');
+    expect(data.snapshots.map((s: { periodKey: string }) => s.periodKey)).not.toContain(week.key);
 
     const cards = () => [...container.querySelectorAll('article')];
     const owner = (card: Element) => card.querySelector('.font-medium')?.textContent ?? '';
