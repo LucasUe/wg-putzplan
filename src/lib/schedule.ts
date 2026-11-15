@@ -182,22 +182,6 @@ function idealRotation(periods: Period[], tasks: Task[], members: Member[]): Map
       chosen.set(t.id, null); // niemand berechtigt
       return false;
     });
-    // Aufgaben nur für eine Teilmenge zuerst und streng reihum (wer sie am längsten nicht hatte),
-    // damit z. B. [Lucas, Paul] sauber abwechselt. Danach der normale Ausgleich.
-    for (const t of remaining.filter((x) => (allowed.get(x.id) ?? []).length < ids.length)) {
-      const cand = [...(allowed.get(t.id) ?? [])].sort((x, y) => {
-        const sx = staleness(t.id, x);
-        const sy = staleness(t.id, y);
-        if (sx !== sy) return sx > sy ? -1 : 1;
-        if (Math.abs(run[x] - run[y]) > EPS) return run[x] - run[y];
-        return (memberOrder.get(x) ?? 0) - (memberOrder.get(y) ?? 0);
-      });
-      const p = cand[0];
-      chosen.set(t.id, p);
-      run[p] += t.weight;
-      lastDone.set(`${t.id}|${p}`, index);
-    }
-    remaining = remaining.filter((t) => !chosen.has(t.id));
 
     while (remaining.length > 0) {
       const topWeight = Math.max(...remaining.map((t) => t.weight));
@@ -266,6 +250,8 @@ function assignLive(
   pins: Record<string, string>,
   overrides: Record<string, Override>,
   state: CadenceState,
+  /** Alle Mitglieder (auch außerhalb der Gruppe): abgehakt ist abgehakt */
+  allMemberIds: Set<string>,
 ): PeriodSchedule {
   const applicable = tasks.filter((t) => appliesTo(t, period));
   const memberOrder = new Map(members.map((m, i) => [m.id, i]));
@@ -361,7 +347,7 @@ function assignLive(
   const pinnedTasks = new Set<string>();
   for (const t of applicable) {
     const pinned = pins[t.id];
-    if (pinned === undefined || !memberIds.has(pinned) || holder.get(t.id) === pinned) continue;
+    if (pinned === undefined || !allMemberIds.has(pinned) || holder.get(t.id) === pinned) continue;
     const previous = holder.get(t.id) ?? null;
     const partner = swapPartner.get(t.id);
     if (partner !== undefined) {
@@ -465,39 +451,94 @@ function fromSnapshot(
   return { period, frozen: true, assignments, takeovers };
 }
 
-/** Rechnet alle Perioden einer Kadenz in zeitlicher Reihenfolge. */
-function runCadence(cadence: Cadence, input: ScheduleInput, tasks: Task[]): PeriodSchedule[] {
-  const periods = periodsBetween(cadence, input.startDate, berlinDay(input.until));
-  const ideal = idealRotation(periods, tasks, input.members);
-  const snapByKey = new Map(input.snapshots.filter((s) => s.cadence === cadence).map((s) => [s.periodKey, s]));
+/** Gruppenschlüssel: sortierte memberIds; '*' für Aufgaben aller Mitglieder. */
+export function groupKeyOf(task: Pick<Task, 'memberIds'>, members: Member[]): string {
+  const ids = members.map((m) => m.id).filter((id) => task.memberIds?.includes(id));
+  if (!task.memberIds || task.memberIds.length === 0 || ids.length === members.length) return ALL_GROUP;
+  return [...ids].sort().join(',');
+}
+
+const ALL_GROUP = '*';
+
+/** Rechnet alle Perioden einer Kadenz für eine Personengruppe (eigene Rotation, eigener Zähler). */
+function runGroup(
+  cadence: Cadence,
+  input: ScheduleInput,
+  periods: Period[],
+  tasks: Task[],
+  members: Member[],
+  snapshots: Snapshot[],
+): PeriodSchedule[] {
+  const ideal = idealRotation(periods, tasks, members);
+  const snapByKey = new Map(snapshots.map((s) => [s.periodKey, s]));
   const today = berlinDay(input.now);
   const state: CadenceState = { counter: {}, lastDone: new Map() };
+  const allMemberIds = new Set(input.members.map((m) => m.id));
+  const taskIds = new Set(tasks.map((t) => t.id));
   const overridesByPeriod = new Map<string, Record<string, Override>>();
   for (const o of input.overrides ?? []) {
-    if (o.cadence !== cadence) continue;
+    if (o.cadence !== cadence || !taskIds.has(o.taskId)) continue;
     const m = overridesByPeriod.get(o.periodKey) ?? {};
     m[o.taskId] = o;
     overridesByPeriod.set(o.periodKey, m);
   }
-  for (const m of input.members) state.counter[m.id] = 0;
+  for (const m of members) state.counter[m.id] = 0;
 
   return periods.map((period, index) => {
     const idealP = ideal.get(period.key) ?? new Map<string, string | null>();
     // Nur beendete Perioden werden eingefroren; die laufende Periode wird immer live berechnet.
     const snap = period.endDay < today ? snapByKey.get(period.key) : undefined;
     return snap
-      ? fromSnapshot(period, index, snap, tasks, input.members, idealP, state)
+      ? fromSnapshot(period, index, snap, tasks, members, idealP, state)
       : assignLive(
           period,
           index,
           tasks,
-          input.members,
+          members,
           input.absences,
           idealP,
           input.pins?.[period.key] ?? {},
           overridesByPeriod.get(period.key) ?? {},
           state,
+          allMemberIds,
         );
+  });
+}
+
+/**
+ * Rechnet alle Perioden einer Kadenz: je Personengruppe unabhängig, danach zusammengeführt.
+ * Aufgaben aller Mitglieder ändern sich nicht, wenn Gruppen-Aufgaben dazukommen.
+ */
+function runCadence(cadence: Cadence, input: ScheduleInput, tasks: Task[]): PeriodSchedule[] {
+  const periods = periodsBetween(cadence, input.startDate, berlinDay(input.until));
+  const groups = new Map<string, Task[]>([[ALL_GROUP, []]]);
+  for (const t of tasks) {
+    const k = groupKeyOf(t, input.members);
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  const groupOfTask = new Map(tasks.map((t) => [t.id, groupKeyOf(t, input.members)]));
+  const cadenceSnaps = input.snapshots.filter((s) => s.cadence === cadence);
+
+  const results = [...groups.entries()].map(([key, groupTasks]) => {
+    const members = key === ALL_GROUP ? input.members : input.members.filter((m) => key.split(',').includes(m.id));
+    // Snapshot-Einträge über die Task-Zugehörigkeit zuordnen; unbekannte Aufgaben zählen zu '*'
+    const snaps = cadenceSnaps.map((snap) => ({
+      ...snap,
+      items: Object.fromEntries(Object.entries(snap.items).filter(([taskId]) => (groupOfTask.get(taskId) ?? ALL_GROUP) === key)),
+    }));
+    return runGroup(cadence, input, periods, groupTasks, members, snaps);
+  });
+
+  const order = new Map(tasks.map((t, i) => [t.id, i]));
+  return periods.map((period, i) => {
+    const parts = results.map((r) => r[i]);
+    const takeovers: Record<string, number> = {};
+    for (const m of input.members) takeovers[m.id] = 0;
+    for (const p of parts) for (const [id, v] of Object.entries(p.takeovers)) takeovers[id] = (takeovers[id] ?? 0) + v;
+    const assignments = parts
+      .flatMap((p) => p.assignments)
+      .sort((a, b) => (order.get(a.taskId) ?? 1e9) - (order.get(b.taskId) ?? 1e9) || (a.taskId < b.taskId ? -1 : 1));
+    return { period, frozen: parts.some((p) => p.frozen), assignments, takeovers };
   });
 }
 

@@ -71,7 +71,7 @@ Prinzip **„Rotation + Übernahmen“**, getrennt für wöchentliche und monatl
 3. **Tausch:** Ist die ideale Person einer Aufgabe nicht verfügbar, aber für eine andere Aufgabe derselben Periode schon (und hätte sonst nichts), wird getauscht. Ein Tausch zählt nicht als Übernahme.
 4. **Übernahme:** Sonst übernimmt die verfügbare Person mit den **wenigsten bisherigen Übernahmen** (Tiebreak: weniger Aufwand in dieser Periode, wer die Aufgabe am längsten nicht hatte, feste Reihenfolge). Ihr Übernahme-Zähler steigt um das Gewicht.
 5. **Kein Ausgleich:** Übernahmen werden nicht zurückgezahlt. Sind alle da, gilt exakt die ideale Rotation. Der Zähler entscheidet nur, wer bei der nächsten Abwesenheit zuerst einspringt.
-6. **Nur bestimmte Personen:** Eine Aufgabe kann auf eine Teilmenge beschränkt werden (`memberIds`). Nur diese Personen kommen in Rotation, Tausch und Übernahme vor; sie wechseln sich streng reihum ab. Ist keine davon verfügbar, bleibt die Aufgabe unbesetzt.
+6. **Nur bestimmte Personen:** Eine Aufgabe kann auf eine Teilmenge beschränkt werden (`memberIds`). Jede Personengruppe hat ihre eigene Rotation und ihren eigenen Übernahme-Zähler: Aufgaben für alle ändern sich nicht, wenn eine Gruppen-Aufgabe dazukommt; Aufgaben derselben Gruppe (z. B. Lucas + Paul) werden untereinander gerecht verteilt, Tausch und Übernahme finden nur in der Gruppe statt. Ist keine Person der Gruppe verfügbar, bleibt die Aufgabe unbesetzt.
 7. **Alle 2 Wochen:** Wöchentliche Aufgaben können 14-tägig sein (`everyWeeks: 2`, `anchorWeek` = erste Woche). In den Zwischenwochen existiert die Aufgabe nicht.
 8. Ist niemand verfügbar, bleibt die Aufgabe unzugeteilt. Abgehakte Aufgaben bleiben bei der Person, die sie abgehakt hat.
 

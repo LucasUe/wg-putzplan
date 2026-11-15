@@ -397,45 +397,93 @@ describe('Manuelles Abgeben und Tauschen (Overrides)', () => {
   });
 });
 
-describe('Aufgaben nur für bestimmte Personen', () => {
-  const BAD = { ...task('bad', 'weekly', 'fullWeek'), memberIds: ['lucas', 'paul'] };
-  const run = (overrides: Partial<ScheduleInput> = {}) =>
-    computeSchedule(input({ tasks: [...WEEKLY, BAD], until: new Date('2026-12-06T12:00:00Z'), ...overrides }));
+describe('Personengruppen getrennt verteilen', () => {
+  const UNTIL = new Date('2027-01-17T12:00:00Z'); // ≥ 12 Wochen
+  const SEED = [...WEEKLY, ...MONTHLY];
+  const LP = { ...task('bad', 'weekly', 'fullWeek'), memberIds: ['paul', 'lucas'] };
+  const MP = { ...task('balkon', 'weekly', 'weekend'), memberIds: ['marleen', 'paul'] };
+  const run = (tasks: Task[], overrides: Partial<ScheduleInput> = {}) => computeSchedule(input({ tasks, until: UNTIL, ...overrides }));
+  const plan = (s: Schedule, ids: string[]) =>
+    [...s.weekly, ...s.monthly].map((p) => [p.period.key, p.assignments.filter((a) => ids.includes(a.taskId)).map((a) => `${a.taskId}=${a.memberId}`)]);
+  const seedIds = SEED.map((t) => t.id);
+  const owner = (s: Schedule, key: string, taskId: string) => s.weekly.find((p) => p.period.key === key)!.assignments.find((a) => a.taskId === taskId)?.memberId;
 
-  it('Teilmenge [lucas, paul]: streng abwechselnd, Marlen nie; mit 4 Aufgaben jede Person ≥ 1 pro Woche, Summen über 6 Wochen ausgeglichen', () => {
-    const s = run();
-    const weeks = s.weekly.slice(0, 6);
-    const bad = weeks.map((p) => p.assignments.find((a) => a.taskId === 'bad')!.memberId);
-    // Beobachtet: lucas, paul, lucas, paul, lucas, paul
-    expect(bad).toEqual(['lucas', 'paul', 'lucas', 'paul', 'lucas', 'paul']);
-    const total: Record<string, number> = {};
-    for (const p of weeks) {
-      const c = countBy(p.assignments.map((a) => a.memberId));
-      for (const m of MEMBERS) expect(c[m.id] ?? 0, `${p.period.key} ${m.id}`).toBeGreaterThanOrEqual(1);
-      for (const [k, v] of Object.entries(c)) total[k] = (total[k] ?? 0) + v;
-    }
-    // Beobachtet: je 8 Aufgaben pro Person in 6 Wochen (Unterschied 0 ≤ 1 Teilmengen-Aufgabe)
-    const values = MEMBERS.map((m) => total[m.id] ?? 0);
-    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(1);
-    expect(values.reduce((a, b) => a + b, 0)).toBe(24);
+  it('{lucas, paul}-Aufgabe: Seed-Aufgaben unverändert, Zusatzaufgabe wechselt strikt Lucas, Paul, …', () => {
+    const base = run(SEED);
+    const s = run([...SEED, LP]);
+    expect(plan(s, seedIds)).toEqual(plan(base, seedIds));
+    const owners = s.weekly.slice(0, 12).map((p) => p.assignments.find((a) => a.taskId === 'bad')!.memberId);
+    expect(owners).toEqual(Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? 'lucas' : 'paul')));
   });
 
-  it('Teilmenge, Lucas abwesend -> Paul übernimmt, nie Marlen; beide abwesend -> null', () => {
-    const lucasAway = run({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-15')] });
-    for (const p of lucasAway.weekly.slice(0, 3)) {
-      expect(p.assignments.find((a) => a.taskId === 'bad')!.memberId, p.period.key).toBe('paul');
+  it('zusätzlich {marleen, paul}: Seed und {lucas, paul} unverändert, neue Aufgabe wechselt Marlen/Paul', () => {
+    const before = run([...SEED, LP]);
+    const s = run([...SEED, LP, MP]);
+    expect(plan(s, [...seedIds, 'bad'])).toEqual(plan(before, [...seedIds, 'bad']));
+    const owners = s.weekly.slice(0, 12).map((p) => p.assignments.find((a) => a.taskId === 'balkon')!.memberId);
+    expect(owners).toEqual(Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? 'marleen' : 'paul')));
+  });
+
+  it('zwei wöchentliche {lucas, paul}-Aufgaben: jede Woche jeder genau eine, über 4 Wochen jede Aufgabe je 2-mal', () => {
+    const LP2 = { ...task('flur', 'weekly', 'weekend'), memberIds: ['lucas', 'paul'] };
+    const s = run([...SEED, LP, LP2]);
+    const weeks = s.weekly.slice(0, 4);
+    for (const p of weeks) {
+      const pair = ['bad', 'flur'].map((id) => p.assignments.find((a) => a.taskId === id)!.memberId).sort();
+      expect(pair, p.period.key).toEqual(['lucas', 'paul']);
     }
-    const both = run({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-10-26', '2026-11-01')] });
-    expect(both.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId).toBeNull();
+    for (const id of ['bad', 'flur']) {
+      const c = countBy(weeks.map((p) => p.assignments.find((a) => a.taskId === id)!.memberId));
+      expect(c, id).toEqual({ lucas: 2, paul: 2 });
+    }
+  });
+
+  it('wöchentlich + 14-tägig in {lucas, paul}: Summen über 12 Wochen unterscheiden sich höchstens um 1', () => {
+    const BI = { ...task('fenster', 'weekly', 'weekend'), memberIds: ['lucas', 'paul'], everyWeeks: 2 as const, anchorWeek: '2026-10-26' };
+    const s = run([...SEED, LP, BI]);
+    const c = countBy(s.weekly.slice(0, 12).flatMap((p) => p.assignments.filter((a) => a.taskId === 'bad' || a.taskId === 'fenster').map((a) => a.memberId)));
+    expect((c.lucas ?? 0) + (c.paul ?? 0)).toBe(18);
+    expect(Math.abs((c.lucas ?? 0) - (c.paul ?? 0))).toBeLessThanOrEqual(1);
+    expect(c.marleen).toBeUndefined();
+  });
+
+  it('Lucas abwesend: {lucas, paul}-Aufgabe geht an Paul, Seed-Aufgaben wie ohne Gruppenaufgabe', () => {
+    const absences = [abs('l', 'lucas', '2026-10-26', '2026-11-15')];
+    const base = run(SEED, { absences });
+    const s = run([...SEED, LP], { absences });
+    expect(plan(s, seedIds)).toEqual(plan(base, seedIds));
+    for (const key of ['2026-W44', '2026-W45', '2026-W46']) expect(owner(s, key, 'bad'), key).toBe('paul');
+    // Übernahme in der Gruppe zählt im Gesamt-Zähler
+    const w44 = s.weekly[0];
+    expect(w44.assignments.find((a) => a.taskId === 'bad')!.takenFor).toBe('lucas');
+    expect(w44.takeovers.paul).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Gruppe ganz abwesend -> null, nie an Außenstehende', () => {
+    const s = run([...SEED, LP], { absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-10-26', '2026-11-01')] });
+    expect(owner(s, '2026-W44', 'bad')).toBeNull();
   });
 
   it('Abgeben an eine nicht berechtigte Person wird ignoriert', () => {
-    const base = run();
-    const holder = base.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId;
-    const s = run({
-      overrides: [{ id: '2026-W44_bad', periodKey: '2026-W44', cadence: 'weekly', taskId: 'bad', memberId: 'marleen', kind: 'handover', createdBy: holder!, createdAt: '2026-10-27T10:00:00Z' }],
+    const base = run([...SEED, LP]);
+    const holder = owner(base, '2026-W44', 'bad')!;
+    const s = run([...SEED, LP], {
+      overrides: [{ id: '2026-W44_bad', periodKey: '2026-W44', cadence: 'weekly', taskId: 'bad', memberId: 'marleen', kind: 'handover', createdBy: holder, createdAt: '2026-10-27T10:00:00Z' }],
     });
-    expect(s.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId).toBe(holder);
+    expect(owner(s, '2026-W44', 'bad')).toBe(holder);
+  });
+
+  it('alter Snapshot einer Gruppen-Aufgabe: Fallback zählt die Übernahme in der Gruppe', () => {
+    const over = { absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01')], now: new Date('2026-11-03T12:00:00Z') };
+    const live = run([...SEED, LP], over);
+    const snap = buildSnapshot(live.weekly[0], '2026-11-02T00:00:00Z');
+    const legacy = {
+      ...snap,
+      items: Object.fromEntries(Object.entries(snap.items).map(([k, v]) => [k, { memberId: v.memberId, weight: v.weight, eligible: v.eligible }])),
+    };
+    const fromLegacy = run([...SEED, LP], { ...over, snapshots: [legacy] });
+    expect(fromLegacy.weekly[0].frozen).toBe(true);
+    expect(fromLegacy.weekly[0].takeovers).toEqual(live.weekly[0].takeovers);
   });
 });
 
