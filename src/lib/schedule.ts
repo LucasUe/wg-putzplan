@@ -3,6 +3,7 @@ import {
   berlinDay,
   countDays,
   isWindowValidFor,
+  mondayOf,
   periodAt,
   periodOf,
   periodsBetween,
@@ -100,11 +101,24 @@ export function isAvailable(memberId: string, window: DayRange, absences: Absenc
 }
 
 /** Aufgabe zählt für eine Periode, wenn sie aktiv ist und ab ihrer eigenen Periode existiert. */
-function appliesTo(task: Task, period: Period): boolean {
+export function appliesTo(task: Task, period: Period): boolean {
   if (!task.active || task.cadence !== period.cadence) return false;
   if (!isWindowValidFor(task.cadence, task.window)) return false;
+  if (task.cadence === 'weekly' && task.everyWeeks === 2) {
+    // Alle 2 Wochen: ab anchorWeek (sonst Woche von createdAt) jede zweite Woche
+    const anchor = mondayOf(task.anchorWeek ?? berlinDay(new Date(task.createdAt)));
+    if (period.startDay < anchor) return false;
+    const weeks = Math.round(countDays({ startDay: anchor, endDay: period.startDay }) / 7);
+    return weeks % 2 === 0;
+  }
   const createdPeriod = periodOf(task.cadence, berlinDay(new Date(task.createdAt)));
   return createdPeriod.startDay <= period.startDay;
+}
+
+/** Personen, die eine Aufgabe überhaupt machen dürfen (memberIds, sonst alle). */
+function allowedFor(task: Task, members: Member[]): string[] {
+  const ids = members.map((m) => m.id);
+  return task.memberIds && task.memberIds.length > 0 ? ids.filter((id) => task.memberIds!.includes(id)) : ids;
 }
 
 /** Deterministische Reihenfolge: createdAt, dann id (unabhängig von der Lade-Reihenfolge). */
@@ -162,31 +176,60 @@ function idealRotation(periods: Period[], tasks: Task[], members: Member[]): Map
       return last === undefined ? Number.POSITIVE_INFINITY : index - last;
     };
 
-    let remaining = [...applicable];
+    const allowed = new Map(applicable.map((t) => [t.id, allowedFor(t, members)]));
+    let remaining = applicable.filter((t) => {
+      if ((allowed.get(t.id) ?? []).length > 0) return true;
+      chosen.set(t.id, null); // niemand berechtigt
+      return false;
+    });
+    // Aufgaben nur für eine Teilmenge zuerst und streng reihum (wer sie am längsten nicht hatte),
+    // damit z. B. [Lucas, Paul] sauber abwechselt. Danach der normale Ausgleich.
+    for (const t of remaining.filter((x) => (allowed.get(x.id) ?? []).length < ids.length)) {
+      const cand = [...(allowed.get(t.id) ?? [])].sort((x, y) => {
+        const sx = staleness(t.id, x);
+        const sy = staleness(t.id, y);
+        if (sx !== sy) return sx > sy ? -1 : 1;
+        if (Math.abs(run[x] - run[y]) > EPS) return run[x] - run[y];
+        return (memberOrder.get(x) ?? 0) - (memberOrder.get(y) ?? 0);
+      });
+      const p = cand[0];
+      chosen.set(t.id, p);
+      run[p] += t.weight;
+      lastDone.set(`${t.id}|${p}`, index);
+    }
+    remaining = remaining.filter((t) => !chosen.has(t.id));
+
     while (remaining.length > 0) {
       const topWeight = Math.max(...remaining.map((t) => t.weight));
       const pool = remaining.filter((t) => t.weight === topWeight);
-      const minRun = Math.min(...ids.map((id) => run[id]));
-      const lowest = ids.filter((id) => run[id] - minRun <= EPS);
 
+      // Kandidaten: je Aufgabe nur berechtigte Personen. Zuerst niedrigster Saldo,
+      // dann wer die Aufgabe am längsten nicht hatte, dann die am stärksten eingeschränkte Aufgabe.
       let best: { t: Task; p: string; fresh: number } | null = null;
       for (const t of pool) {
+        const cand = allowed.get(t.id) ?? [];
+        const minRun = Math.min(...cand.map((id) => run[id]));
+        const lowest = cand.filter((id) => run[id] - minRun <= EPS);
         const fresh = lowest.filter((id) => staleness(t.id, id) > 2).length;
         for (const p of lowest) {
           if (best === null) {
             best = { t, p, fresh };
             continue;
           }
-          const sp = staleness(t.id, p);
-          const sb = staleness(best.t.id, best.p);
+          const dr = run[p] - run[best.p];
           let better = false;
-          if (sp > sb) better = true;
-          else if (sp === sb) {
-            if (fresh < best.fresh) better = true;
-            else if (fresh === best.fresh) {
-              const to = taskOrder.get(t.id) ?? 0;
-              const bo = taskOrder.get(best.t.id) ?? 0;
-              if (to < bo || (to === bo && (memberOrder.get(p) ?? 0) < (memberOrder.get(best.p) ?? 0))) better = true;
+          if (dr < -EPS) better = true;
+          else if (Math.abs(dr) <= EPS) {
+            const sp = staleness(t.id, p);
+            const sb = staleness(best.t.id, best.p);
+            if (sp > sb) better = true;
+            else if (sp === sb) {
+              if (fresh < best.fresh) better = true;
+              else if (fresh === best.fresh) {
+                const to = taskOrder.get(t.id) ?? 0;
+                const bo = taskOrder.get(best.t.id) ?? 0;
+                if (to < bo || (to === bo && (memberOrder.get(p) ?? 0) < (memberOrder.get(best.p) ?? 0))) better = true;
+              }
             }
           }
           if (better) best = { t, p, fresh };
@@ -230,7 +273,8 @@ function assignLive(
   const eligibleOf = new Map<string, string[]>();
   for (const t of applicable) {
     const range = windowFor(period, t.window);
-    eligibleOf.set(t.id, members.filter((m) => isAvailable(m.id, range, absences)).map((m) => m.id));
+    const allowed = allowedFor(t, members);
+    eligibleOf.set(t.id, members.filter((m) => allowed.includes(m.id) && isAvailable(m.id, range, absences)).map((m) => m.id));
   }
   const elig = (taskId: string) => eligibleOf.get(taskId) ?? [];
   const idealOf = (taskId: string) => ideal.get(taskId) ?? null;

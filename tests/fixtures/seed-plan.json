@@ -1,0 +1,142 @@
+{
+ "weekly": [
+  {
+   "key": "2026-W44",
+   "a": {
+    "kueche": "lucas",
+    "muell": "marleen",
+    "saugen": "paul"
+   }
+  },
+  {
+   "key": "2026-W45",
+   "a": {
+    "kueche": "marleen",
+    "muell": "paul",
+    "saugen": "lucas"
+   }
+  },
+  {
+   "key": "2026-W46",
+   "a": {
+    "kueche": "paul",
+    "muell": "lucas",
+    "saugen": "marleen"
+   }
+  },
+  {
+   "key": "2026-W47",
+   "a": {
+    "kueche": "lucas",
+    "muell": "marleen",
+    "saugen": "paul"
+   }
+  },
+  {
+   "key": "2026-W48",
+   "a": {
+    "kueche": "marleen",
+    "muell": "lucas",
+    "saugen": "paul"
+   }
+  },
+  {
+   "key": "2026-W49",
+   "a": {
+    "kueche": "paul",
+    "muell": "paul",
+    "saugen": "marleen"
+   }
+  },
+  {
+   "key": "2026-W50",
+   "a": {
+    "kueche": "lucas",
+    "muell": "marleen",
+    "saugen": "paul"
+   }
+  },
+  {
+   "key": "2026-W51",
+   "a": {
+    "kueche": "marleen",
+    "muell": "paul",
+    "saugen": "lucas"
+   }
+  },
+  {
+   "key": "2026-W52",
+   "a": {
+    "kueche": "paul",
+    "muell": "lucas",
+    "saugen": "marleen"
+   }
+  },
+  {
+   "key": "2026-W53",
+   "a": {
+    "kueche": "lucas",
+    "muell": "marleen",
+    "saugen": "paul"
+   }
+  },
+  {
+   "key": "2027-W01",
+   "a": {
+    "kueche": "marleen",
+    "muell": "paul",
+    "saugen": "lucas"
+   }
+  },
+  {
+   "key": "2027-W02",
+   "a": {
+    "kueche": "paul",
+    "muell": "lucas",
+    "saugen": "marleen"
+   }
+  },
+  {
+   "key": "2027-W03",
+   "a": {
+    "kueche": "lucas",
+    "muell": "marleen",
+    "saugen": "paul"
+   }
+  }
+ ],
+ "monthly": [
+  {
+   "key": "2026-10",
+   "a": {
+    "kuehlschrank": "lucas",
+    "pappe": "marleen",
+    "wischen": "paul"
+   }
+  },
+  {
+   "key": "2026-11",
+   "a": {
+    "kuehlschrank": "marleen",
+    "pappe": "paul",
+    "wischen": "lucas"
+   }
+  },
+  {
+   "key": "2026-12",
+   "a": {
+    "kuehlschrank": "paul",
+    "pappe": "lucas",
+    "wischen": "marleen"
+   }
+  },
+  {
+   "key": "2027-01",
+   "a": {
+    "kuehlschrank": "lucas",
+    "pappe": "marleen",
+    "wischen": "paul"
+   }
+  }
+ ]
+}

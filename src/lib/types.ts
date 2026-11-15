@@ -27,6 +27,12 @@ export interface Task {
   createdAt: string;
   /** Eigene Erinnerungen; fehlt = Standard je Zeitfenster (siehe defaultReminders) */
   reminders?: TaskReminders;
+  /** Nur diese Personen machen die Aufgabe; fehlt oder leer = alle */
+  memberIds?: string[];
+  /** Nur für cadence 'weekly': 2 = alle 2 Wochen */
+  everyWeeks?: 1 | 2;
+  /** Montag (YYYY-MM-DD) der ersten Woche, in der die Aufgabe dran ist (bei everyWeeks 2) */
+  anchorWeek?: string;
 }
 
 /** Ein Erinnerungstermin. weekly: day 1=Mo … 7=So. monthly: 1–28 = Tag des Monats, 0 = letzter Tag, −1 = vorletzter … */

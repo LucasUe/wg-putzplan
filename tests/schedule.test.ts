@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { berlinDay, weekPeriod, windowFor, monthPeriod, type Cadence, type TaskWindow } from '../src/lib/periods';
 import {
   buildSnapshot,
@@ -393,6 +394,102 @@ describe('Manuelles Abgeben und Tauschen (Overrides)', () => {
     const s = computeSchedule(input({ now: NOW, until: UNTIL, absences, overrides: [ov(t.taskId, other, 'handover', taker)] }));
     expect(s.weekly[0].takeovers).toEqual(noOv.weekly[0].takeovers);
     expect(holders(s, 'weekly', '2026-W44')[t.taskId]).toBe(other);
+  });
+});
+
+describe('Aufgaben nur für bestimmte Personen', () => {
+  const BAD = { ...task('bad', 'weekly', 'fullWeek'), memberIds: ['lucas', 'paul'] };
+  const run = (overrides: Partial<ScheduleInput> = {}) =>
+    computeSchedule(input({ tasks: [...WEEKLY, BAD], until: new Date('2026-12-06T12:00:00Z'), ...overrides }));
+
+  it('Teilmenge [lucas, paul]: streng abwechselnd, Marlen nie; mit 4 Aufgaben jede Person ≥ 1 pro Woche, Summen über 6 Wochen ausgeglichen', () => {
+    const s = run();
+    const weeks = s.weekly.slice(0, 6);
+    const bad = weeks.map((p) => p.assignments.find((a) => a.taskId === 'bad')!.memberId);
+    // Beobachtet: lucas, paul, lucas, paul, lucas, paul
+    expect(bad).toEqual(['lucas', 'paul', 'lucas', 'paul', 'lucas', 'paul']);
+    const total: Record<string, number> = {};
+    for (const p of weeks) {
+      const c = countBy(p.assignments.map((a) => a.memberId));
+      for (const m of MEMBERS) expect(c[m.id] ?? 0, `${p.period.key} ${m.id}`).toBeGreaterThanOrEqual(1);
+      for (const [k, v] of Object.entries(c)) total[k] = (total[k] ?? 0) + v;
+    }
+    // Beobachtet: je 8 Aufgaben pro Person in 6 Wochen (Unterschied 0 ≤ 1 Teilmengen-Aufgabe)
+    const values = MEMBERS.map((m) => total[m.id] ?? 0);
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(1);
+    expect(values.reduce((a, b) => a + b, 0)).toBe(24);
+  });
+
+  it('Teilmenge, Lucas abwesend -> Paul übernimmt, nie Marlen; beide abwesend -> null', () => {
+    const lucasAway = run({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-15')] });
+    for (const p of lucasAway.weekly.slice(0, 3)) {
+      expect(p.assignments.find((a) => a.taskId === 'bad')!.memberId, p.period.key).toBe('paul');
+    }
+    const both = run({ absences: [abs('l', 'lucas', '2026-10-26', '2026-11-01'), abs('p', 'paul', '2026-10-26', '2026-11-01')] });
+    expect(both.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId).toBeNull();
+  });
+
+  it('Abgeben an eine nicht berechtigte Person wird ignoriert', () => {
+    const base = run();
+    const holder = base.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId;
+    const s = run({
+      overrides: [{ id: '2026-W44_bad', periodKey: '2026-W44', cadence: 'weekly', taskId: 'bad', memberId: 'marleen', kind: 'handover', createdBy: holder!, createdAt: '2026-10-27T10:00:00Z' }],
+    });
+    expect(s.weekly[0].assignments.find((a) => a.taskId === 'bad')!.memberId).toBe(holder);
+  });
+});
+
+describe('Aufgaben alle 2 Wochen', () => {
+  const FENSTER = { ...task('fenster', 'weekly', 'weekend'), everyWeeks: 2 as const, anchorWeek: '2026-11-09' };
+  const s = computeSchedule(input({ tasks: [...WEEKLY, FENSTER], until: new Date('2027-01-10T12:00:00Z') }));
+  const has = (key: string) => Object.keys(holders(s, 'weekly', key)).includes('fenster');
+
+  it('aktiv in anchor, +2, +4; nicht in +1, +3 und nicht davor', () => {
+    expect(has('2026-W44')).toBe(false);
+    expect(has('2026-W45')).toBe(false);
+    expect(has('2026-W46')).toBe(true);
+    expect(has('2026-W47')).toBe(false);
+    expect(has('2026-W48')).toBe(true);
+    expect(has('2026-W49')).toBe(false);
+    expect(has('2026-W50')).toBe(true);
+  });
+
+  it('ohne anchorWeek: ab der Woche von createdAt', () => {
+    const t = { ...task('x', 'weekly', 'fullWeek'), everyWeeks: 2 as const, createdAt: '2026-11-04T10:00:00Z' };
+    const r = computeSchedule(input({ tasks: [...WEEKLY, t] }));
+    const on = r.weekly.filter((p) => p.assignments.some((a) => a.taskId === 'x')).map((p) => p.period.key);
+    expect(on).toEqual(['2026-W45', '2026-W47']);
+  });
+
+  it('Rotation reihum über die aktiven Wochen', () => {
+    const owners = s.weekly.filter((p) => has(p.period.key)).slice(0, 6).map((p) => holders(s, 'weekly', p.period.key).fenster);
+    for (let i = 0; i + 3 <= owners.length; i += 3) expect(new Set(owners.slice(i, i + 3)).size, owners.join(',')).toBe(3);
+  });
+});
+
+describe('Regression: ohne neue Felder unveränderter Plan', () => {
+  it('Seed-Aufgaben über 12+ Wochen (inkl. Abwesenheit) entsprechen dem gespeicherten Plan', () => {
+    const hh = { members: MEMBERS, startDate: '2026-10-26' };
+    const seed: Task[] = [
+      { id: 'saugen', name: 'Saugen', icon: '🧹', cadence: 'weekly', window: 'weekend', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'kueche', name: 'Küche putzen', icon: '🍳', cadence: 'weekly', window: 'weekend', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'muell', name: 'Müll', icon: '🗑️', cadence: 'weekly', window: 'fullWeek', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'wischen', name: 'Wischen', icon: '🧽', cadence: 'monthly', window: 'fullMonth', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'kuehlschrank', name: 'Kühlschrank', icon: '🧊', cadence: 'monthly', window: 'fullMonth', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'pappe', name: 'Pappe', icon: '📦', cadence: 'monthly', window: 'fullMonth', weight: 1, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const r = computeSchedule({
+      members: hh.members,
+      tasks: seed,
+      absences: [abs('a', 'lucas', '2026-11-27', '2026-12-08')],
+      startDate: hh.startDate,
+      snapshots: [],
+      until: new Date('2027-01-24T12:00:00Z'),
+      now: new Date('2026-10-27T12:00:00Z'),
+    });
+    const pick = (ps: Schedule['weekly']) => ps.map((p) => ({ key: p.period.key, a: Object.fromEntries(p.assignments.map((x) => [x.taskId, x.memberId])) }));
+    const expected = JSON.parse(readFileSync(new URL('./fixtures/seed-plan.json', import.meta.url), 'utf8'));
+    expect({ weekly: pick(r.weekly), monthly: pick(r.monthly) }).toEqual(expected);
   });
 });
 

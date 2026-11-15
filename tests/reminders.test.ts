@@ -198,3 +198,16 @@ describe('Erinnerungen pro Aufgabe einstellbar', () => {
     expect(forTask(planReminders(base('2026-11-03T17:00:00Z', { tasks })), 'saugen')).toHaveLength(0);
   });
 });
+
+describe('Erinnerungen für Aufgaben alle 2 Wochen', () => {
+  it('14-tägige Wochenend-Aufgabe: Termine nur in aktiven Wochen', () => {
+    const fenster = { ...seedTasks()[0], id: 'fenster', name: 'Fenster', icon: '🪟', window: 'weekend' as const, everyWeeks: 2 as const, anchorWeek: '2026-11-09' };
+    const tasks = [...seedTasks(), fenster];
+    const at = (iso: string) => planReminders(base(iso, { tasks })).messages.filter((m) => m.taskId === 'fenster');
+    expect(at('2026-11-06T17:00:00Z')).toHaveLength(0); // vor anchor
+    expect(at('2026-11-13T17:00:00Z')).toHaveLength(1); // KW46 aktiv
+    expect(at('2026-11-20T17:00:00Z')).toHaveLength(0); // KW47 nicht aktiv
+    expect(at('2026-11-27T17:00:00Z')).toHaveLength(1); // KW48 aktiv
+  });
+});
+
