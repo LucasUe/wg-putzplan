@@ -196,6 +196,34 @@ describe('App-Smoke (Demo-Modus, jsdom)', () => {
     // Andere Aufgaben behalten den Standard (kein Feld gespeichert)
     expect(saved.tasks.find((t: { id: string }) => t.id === 'kueche').reminders).toBeUndefined();
 
+    // Neue Aufgabe: "Bad putzen", alle 2 Wochen, nur Lucas und Paul
+    const neu = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('+ Neu'))!;
+    await act(async () => neu.click());
+    await flush(5);
+    const nameIn = container.querySelector('input[placeholder="z. B. Bad putzen"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameIn, 'Bad putzen');
+      nameIn.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const rhythm = container.querySelector('select[aria-label="Rhythmus"]') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(rhythm, 'biweekly');
+      rhythm.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(container.querySelector('select[aria-label="Erstes Mal in"]')).not.toBeNull();
+    const marlenBox = [...container.querySelectorAll('label')].find((l) => l.textContent === 'Marlen')!.querySelector('input')!;
+    await act(async () => marlenBox.click());
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush(10);
+    const badRow = [...container.querySelectorAll('li')].find((li) => li.textContent?.includes('Bad putzen'))!;
+    expect(badRow.textContent).toContain('alle 2 Wochen');
+    expect(badRow.querySelector('[data-testid="task-members"]')!.textContent).toBe('👥 Lucas, Paul');
+    const savedBad = JSON.parse(window.localStorage.getItem('wg-putzplan:demo:v1') ?? '{}').tasks.find((t: { name: string }) => t.name === 'Bad putzen');
+    expect(savedBad).toMatchObject({ cadence: 'weekly', everyWeeks: 2, memberIds: ['lucas', 'paul'] });
+    expect(savedBad.anchorWeek).toBe(periodAt('weekly', new Date()).startDay);
+
     await act(async () => root.unmount());
   });
 });
